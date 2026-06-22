@@ -19,6 +19,19 @@
 .DS_Store
 *.pem
 
+# lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+.settings.json
+settings.json
+
 # debug
 npm-debug.log*
 yarn-debug.log*
