@@ -1,12 +1,12 @@
 import {
   LayoutDashboard,
   ShoppingCart,
-  ClipboardList,
-  BarChart2,
-  Package,
+  Factory,
+  Sparkles,
+  Archive,
   History,
   Users,
-  UserCog,
+  ShieldCheck,
 } from "lucide-react"
 import { SidebarItem } from "./SidebarItem"
 
@@ -16,14 +16,14 @@ const SECTIONS = [
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/frente-de-caixa", label: "Frente de Caixa", icon: ShoppingCart },
-      { href: "/ordens", label: "Ordens", icon: ClipboardList },
+      { href: "/ordens", label: "Ordens", icon: Factory },
     ],
   },
   {
     label: "Gestão",
     items: [
-      { href: "/inteligencia", label: "Inteligência", icon: BarChart2 },
-      { href: "/inventario", label: "Inventário", icon: Package },
+      { href: "/inteligencia", label: "Inteligência", icon: Sparkles },
+      { href: "/inventario", label: "Inventário", icon: Archive },
       { href: "/historico", label: "Histórico", icon: History },
     ],
   },
@@ -31,7 +31,7 @@ const SECTIONS = [
     label: "Pessoas",
     items: [
       { href: "/clientes", label: "Clientes", icon: Users },
-      { href: "/funcionarios", label: "Funcionários", icon: UserCog },
+      { href: "/funcionarios", label: "Funcionários", icon: ShieldCheck },
     ],
   },
 ]
@@ -42,17 +42,22 @@ interface SidebarNavProps {
 
 export function SidebarNav({ collapsed }: SidebarNavProps) {
   return (
-    <nav className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-5">
-      {SECTIONS.map((section) => (
-        <div key={section.label} className="flex flex-col gap-1">
+    <nav className="flex-1 overflow-y-auto px-4 flex flex-col gap-1 scrollbar-none [&::-webkit-scrollbar]:hidden">
+      {SECTIONS.map((section, i) => (
+        <div key={section.label}>
+          {i > 0 && collapsed && <div className="border-t border-(--color-surface) my-1" />}
           {!collapsed && (
-            <span className="px-3 mb-1 text-[12px] font-medium text-(--color-text-secondary) font-(family-name:--font-ui)">
-              {section.label}
-            </span>
+            <div className="h-7 flex items-center">
+              <span className="text-[11px] font-semibold text-(--color-text-secondary) font-(family-name:--font-ui) uppercase tracking-[0.8px]">
+                {section.label}
+              </span>
+            </div>
           )}
-          {section.items.map((item) => (
-            <SidebarItem key={item.href} collapsed={collapsed} {...item} />
-          ))}
+          <div className="flex flex-col gap-1">
+            {section.items.map((item) => (
+              <SidebarItem key={item.href} collapsed={collapsed} {...item} />
+            ))}
+          </div>
         </div>
       ))}
     </nav>

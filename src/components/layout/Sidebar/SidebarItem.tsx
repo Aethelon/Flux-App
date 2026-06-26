@@ -21,21 +21,13 @@ export function SidebarItem({ href, label, icon: Icon, collapsed }: SidebarItemP
       href={href}
       title={collapsed ? label : undefined}
       className={cn(
-        "flex items-center gap-[var(--sidebar-item-gap,12px)] px-3 py-2.5 rounded-[4px] transition-colors",
-        "text-[14px] font-semibold tracking-[2.4px] uppercase",
-        "font-(family-name:--font-ui)",
-        isActive
-          ? "bg-(--color-accent)/15 text-(--color-text-primary)"
-          : "text-(--color-text-secondary) hover:bg-(--color-surface-raised) hover:text-(--color-text-primary)"
+        "flex items-center gap-2 px-2.5 py-1.75 rounded-xs transition-colors",
+        "text-[13px] font-semibold tracking-[0.2px]",
+        "font-(family-name:--font-ui) text-(--color-text-primary)",
+        isActive ? "bg-(--color-surface)" : "hover:bg-(--color-surface-raised)"
       )}
     >
-      <Icon
-        size={18}
-        className={cn(
-          "shrink-0",
-          isActive ? "text-(--color-accent)" : "text-current"
-        )}
-      />
+      <Icon size={16} className="shrink-0" />
       {!collapsed && <span className="truncate">{label}</span>}
     </Link>
   )

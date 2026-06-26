@@ -22,21 +22,21 @@ export function SidebarFooter({ collapsed, onToggle }: SidebarFooterProps) {
   }
 
   const itemCls = cn(
-    "flex items-center gap-3 px-3 py-2.5 rounded-[4px] transition-colors cursor-pointer",
-    "text-[13px] font-semibold text-(--color-text-secondary)",
-    "hover:bg-(--color-surface-raised) hover:text-(--color-text-primary)",
+    "flex items-center gap-[8px] px-[10px] py-[7px] rounded-[4px] transition-colors cursor-pointer w-full",
+    "text-[13px] font-semibold tracking-[0.2px] text-(--color-text-primary)",
+    "hover:bg-(--color-surface-raised)",
     "font-(family-name:--font-ui)"
   )
 
   return (
-    <div className="px-4 pb-4 flex flex-col gap-1">
+    <div className="border-t border-(--color-surface) pt-4 px-4 pb-4 flex flex-col gap-0.5 shrink-0">
       <button onClick={onToggle} className={itemCls} title={collapsed ? "Expandir" : "Minimizar UI"}>
-        {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+        {collapsed ? <PanelLeftOpen size={16} className="shrink-0" /> : <PanelLeftClose size={16} className="shrink-0" />}
         {!collapsed && <span>Minimizar UI</span>}
       </button>
 
       <Link href="/configuracoes" className={itemCls} title={collapsed ? "Configurações" : undefined}>
-        <Settings size={18} />
+        <Settings size={16} className="shrink-0" />
         {!collapsed && <span>Configurações</span>}
       </Link>
 
@@ -45,7 +45,7 @@ export function SidebarFooter({ collapsed, onToggle }: SidebarFooterProps) {
         className={cn(itemCls, "text-(--color-text-danger) hover:text-(--color-text-danger)")}
         title={collapsed ? "Sair" : undefined}
       >
-        <LogOut size={18} />
+        <LogOut size={16} className="shrink-0" />
         {!collapsed && <span>Sair</span>}
       </button>
     </div>
