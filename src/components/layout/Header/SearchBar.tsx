@@ -22,14 +22,14 @@ export function SearchBar() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-3 h-[50px] flex-1 max-w-xl px-4 rounded-xl
-          bg-(--color-surface) border border-(--color-border)
+        className="flex items-center gap-3 h-12.5 flex-1 max-w-160 px-4 rounded-xl
+          bg-(--color-surface)
           text-(--color-text-secondary) text-[14px] font-semibold
-          font-(family-name:--font-ui) hover:border-(--color-accent)/50
+          font-(family-name:--font-ui) hover:bg-(--color-surface-raised)
           transition-colors"
       >
         <Search size={16} />
-        <span>Pesquisar configurações...</span>
+        <span>Pesquisar configurações, pedidos, estoque...</span>
         <span className="ml-auto text-[11px] font-normal opacity-60">⌘K</span>
       </button>
 

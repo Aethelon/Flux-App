@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { ChevronDown, User, Settings, LogOut } from "lucide-react"
+import { User, Settings, LogOut } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,26 +38,25 @@ export function UserMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "flex items-center gap-[15px] h-[50px] px-2 py-1 rounded-xl",
-          "bg-(--color-surface-raised) border border-(--color-border)",
-          "hover:border-(--color-accent)/50 transition-colors"
+          "flex items-center gap-3.75 h-12.5 px-2 py-1 rounded-xl",
+          "bg-(--color-surface-raised) transition-colors",
+          "hover:bg-(--color-surface) cursor-pointer"
         )}
       >
-        <Avatar className="w-9 h-9 rounded-lg">
+        <div className="flex flex-col items-start pl-2">
+          <span className="text-[14px] font-semibold text-(--color-text-primary) font-(family-name:--font-ui) whitespace-nowrap leading-normal">
+            {user.name}
+          </span>
+          <span className="text-[12px] font-medium text-(--color-text-secondary) font-(family-name:--font-ui) tracking-[-0.132px] whitespace-nowrap leading-4.5">
+            {user.role === "admin" ? "Admin" : "Funcionário"}
+          </span>
+        </div>
+        <Avatar className="w-9 h-9 rounded-md shrink-0">
           <AvatarImage src={user.avatar} alt={user.name} />
-          <AvatarFallback className="rounded-lg bg-(--color-accent) text-white text-[13px] font-semibold">
+          <AvatarFallback className="rounded-md bg-(--color-accent) text-white text-[13px] font-semibold">
             {initials(user.name)}
           </AvatarFallback>
         </Avatar>
-        <div className="flex flex-col items-start leading-none">
-          <span className="text-[13px] font-semibold text-(--color-text-primary) font-(family-name:--font-ui)">
-            {user.name}
-          </span>
-          <span className="text-[12px] font-medium text-(--color-text-secondary) font-(family-name:--font-ui)">
-            {user.role === "admin" ? "Administrador" : "Funcionário"}
-          </span>
-        </div>
-        <ChevronDown size={14} className="text-(--color-text-secondary) ml-1" />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-48">
