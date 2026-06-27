@@ -11,7 +11,7 @@ export function PageHeader({ title, subtitle, children, className }: PageHeaderP
   return (
     <div className={cn("flex items-start justify-between mb-12", className)}>
       <div>
-        <h1 className="text-[56px] font-semibold leading-[70px] tracking-[-2.24px] text-(--color-text-primary) font-(family-name:--font-ui)">
+        <h1 className="text-[56px] font-semibold leading-17.5 tracking-[-2.24px] text-(--color-text-primary) font-(family-name:--font-ui)">
           {title}
         </h1>
         {subtitle && (

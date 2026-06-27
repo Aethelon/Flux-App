@@ -85,7 +85,7 @@ export function DataTable<T>({
         </div>
       )}
 
-      <div className="rounded-[8px] border border-(--color-border) overflow-hidden">
+      <div className="rounded-md border border-(--color-border) overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="border-(--color-border) hover:bg-transparent">
