@@ -1,18 +1,12 @@
 import type { Metadata } from "next"
-import { DM_Sans, Inter } from "next/font/google"
+import { Urbanist } from "next/font/google"
 import { ThemeProvider } from "next-themes"
 import { Toaster } from "@/components/ui/sonner"
 import "./globals.css"
 
-const dmSans = DM_Sans({
+const urbanist = Urbanist({
   subsets: ["latin"],
   variable: "--font-ui",
-  display: "swap",
-})
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-data",
   display: "swap",
 })
 
@@ -28,7 +22,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
-      <body className={`${dmSans.variable} ${inter.variable} antialiased`}>
+      <body className={`${urbanist.variable} antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
           {children}
           <Toaster />
