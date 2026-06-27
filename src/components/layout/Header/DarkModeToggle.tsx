@@ -17,7 +17,7 @@ export function DarkModeToggle() {
   return (
     <button
       onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-      className="flex items-center justify-center w-9 h-9 rounded-lg
+      className="flex items-center justify-center size-12.5 rounded-xl
         text-(--color-text-secondary) hover:text-(--color-text-primary)
         hover:bg-(--color-surface-raised) transition-colors"
       title="Alternar tema"
