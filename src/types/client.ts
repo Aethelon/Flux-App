@@ -5,4 +5,5 @@ export interface Client {
   phone: string
   status: "Ativo" | "Inativo"
   createdAt: string
+  lastPurchase: string
 }
