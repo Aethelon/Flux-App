@@ -18,23 +18,28 @@ export function Sidebar() {
     >
       <div
         className={cn(
-          "flex items-center pb-6 pt-6 shrink-0",
-          collapsed ? "justify-center" : "px-6 gap-1"
+          "flex items-center pb-6 pt-6 shrink-0 transition-all duration-200",
+          collapsed ? "pl-4.5" : "px-6 gap-1"
         )}
       >
         <div className="size-10 rounded-[12px] bg-(--color-accent) flex items-center justify-center shrink-0 shadow-[0px_4px_4px_0px_rgba(0,0,0,0.25)]">
           <span className="text-[18px] font-black text-white font-(family-name:--font-ui)">F</span>
         </div>
-        {!collapsed && (
-          <div className="flex flex-col pl-2.5">
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-200",
+            collapsed ? "max-w-0 opacity-0" : "max-w-50 opacity-100"
+          )}
+        >
+          <div className="flex flex-col pl-2.5 whitespace-nowrap">
             <span className="text-[20px] font-black text-(--color-text-primary) font-(family-name:--font-ui) leading-none">
               Flux
             </span>
-            <span className="text-[12px] font-medium text-(--color-text-secondary) font-(family-name:--font-ui) leading-4 whitespace-nowrap">
+            <span className="text-[12px] font-medium text-(--color-text-secondary) font-(family-name:--font-ui) leading-4">
               Varejo &amp; Produção
             </span>
           </div>
-        )}
+        </div>
       </div>
 
       <SidebarNav collapsed={collapsed} />
