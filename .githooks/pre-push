@@ -5,3 +5,6 @@ npm run typecheck || { echo "pre-push: type-check failed — push aborted"; exit
 
 echo "pre-push: lint"
 npm run lint || { echo "pre-push: lint failed — push aborted"; exit 1; }
+
+echo "pre-push: build"
+npm run build || { echo "pre-push: build failed — push aborted"; exit 1; }
