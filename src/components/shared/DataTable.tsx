@@ -67,9 +67,9 @@ export function DataTable<T>({
   const end = pagination ? Math.min(pagination.page * pagination.perPage, pagination.total) : data.length
 
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    <div className={cn("rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden", className)}>
       {(tabs || actions) && (
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-4 px-3 py-3 border-b border-(--color-border) bg-(--color-surface-raised)">
           {tabs && (
             <Tabs value={activeTab} onValueChange={onTabChange}>
               <TabsList className="bg-(--color-surface)">
@@ -85,7 +85,7 @@ export function DataTable<T>({
         </div>
       )}
 
-      <div className="rounded-md border border-(--color-border) overflow-hidden">
+      <div className="overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="border-(--color-border) hover:bg-transparent">
@@ -149,7 +149,7 @@ export function DataTable<T>({
       </div>
 
       {pagination && pagination.total > 0 && (
-        <div className="flex items-center justify-between text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
+        <div className="flex items-center justify-between px-5 py-3 border-t border-(--color-border) bg-(--color-surface-raised) text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
           <span>
             Mostrando {start} a {end} de {pagination.total}
           </span>
