@@ -1,5 +1,6 @@
 import { Sidebar } from "./Sidebar/Sidebar"
 import { Header } from "./Header/Header"
+import { ContentScaler } from "./ContentScaler"
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -7,8 +8,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto p-10 scrollbar-none">
-          {children}
+        <main className="flex-1 overflow-y-auto scrollbar-none">
+          <ContentScaler>{children}</ContentScaler>
         </main>
       </div>
     </div>

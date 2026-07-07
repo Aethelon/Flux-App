@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { User, Settings, LogOut } from "lucide-react"
+import { Settings, LogOut } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,9 +60,6 @@ export function UserMenu() {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuItem onClick={() => router.push("/configuracoes")}>
-          <User size={14} className="mr-2" /> Perfil
-        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/configuracoes")}>
           <Settings size={14} className="mr-2" /> Configurações
         </DropdownMenuItem>
