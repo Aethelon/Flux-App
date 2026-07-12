@@ -17,7 +17,7 @@ export function StatCard({ label, value, icon: Icon, trend, className, valueClas
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 p-5 rounded-[8px]",
+        "flex flex-col gap-3 p-5 rounded-md",
         "bg-(--color-surface) border border-(--color-border)",
         className
       )}
@@ -31,7 +31,7 @@ export function StatCard({ label, value, icon: Icon, trend, className, valueClas
 
       <span
         className={cn(
-          "text-[24px] font-semibold leading-[36px] tracking-[-0.48px] text-(--color-text-primary) font-(family-name:--font-data)",
+          "text-[24px] font-semibold leading-9 tracking-[-0.48px] text-(--color-text-primary) font-(family-name:--font-data)",
           valueClassName
         )}
       >
