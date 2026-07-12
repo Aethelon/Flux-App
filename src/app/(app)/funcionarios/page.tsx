@@ -6,6 +6,8 @@ import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
 import { StatusBadge } from "@/components/shared/StatusBadge"
+import { FilterDropdown } from "@/components/shared/FilterDropdown"
+import { TableSearchInput } from "@/components/shared/TableSearchInput"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -68,10 +70,10 @@ function EmployeeAvatar({ name, colorIndex }: { name: string; colorIndex: number
   )
 }
 
-const TABS = [
-  { value: "todos",    label: "Todos" },
-  { value: "ativos",   label: "Ativos" },
-  { value: "inativos", label: "Inativos" },
+const STATUS_FILTERS = [
+  { value: "todos", label: "Todos" },
+  { value: "Ativo", label: "Ativos" },
+  { value: "Inativo", label: "Inativos" },
 ]
 
 const PER_PAGE = 10
@@ -88,7 +90,8 @@ const EMPTY_FORM: EmployeeForm = { name: "", email: "", phone: "", role: "Funcio
 
 export default function FuncionariosPage() {
   const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES)
-  const [tab, setTab] = useState("todos")
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState("todos")
   const [page, setPage] = useState(1)
 
   const [addOpen, setAddOpen] = useState(false)
@@ -98,8 +101,8 @@ export default function FuncionariosPage() {
   const [form, setForm] = useState<EmployeeForm>(EMPTY_FORM)
 
   const filtered = employees.filter((e) => {
-    if (tab === "ativos")   return e.status === "Ativo"
-    if (tab === "inativos") return e.status === "Inativo"
+    if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false
+    if (statusFilter !== "todos" && e.status !== statusFilter) return false
     return true
   })
 
@@ -212,9 +215,21 @@ export default function FuncionariosPage() {
         columns={columns}
         data={paginated}
         keyField="id"
-        tabs={TABS}
-        activeTab={tab}
-        onTabChange={(t) => { setTab(t); setPage(1) }}
+        filters={
+          <>
+            <TableSearchInput
+              value={search}
+              onChange={(v) => { setSearch(v); setPage(1) }}
+              placeholder="Buscar por nome..."
+            />
+            <FilterDropdown
+              label="Status"
+              value={statusFilter}
+              options={STATUS_FILTERS}
+              onChange={(v) => { setStatusFilter(v); setPage(1) }}
+            />
+          </>
+        }
         actions={
           <>
             <Button

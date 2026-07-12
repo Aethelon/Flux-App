@@ -10,9 +10,10 @@ interface StatCardProps {
     positive?: boolean
   }
   className?: string
+  valueClassName?: string
 }
 
-export function StatCard({ label, value, icon: Icon, trend, className }: StatCardProps) {
+export function StatCard({ label, value, icon: Icon, trend, className, valueClassName }: StatCardProps) {
   return (
     <div
       className={cn(
@@ -28,7 +29,12 @@ export function StatCard({ label, value, icon: Icon, trend, className }: StatCar
         {Icon && <Icon size={16} className="text-(--color-text-secondary)" />}
       </div>
 
-      <span className="text-[24px] font-semibold leading-[36px] tracking-[-0.48px] text-(--color-text-primary) font-(family-name:--font-data)">
+      <span
+        className={cn(
+          "text-[24px] font-semibold leading-[36px] tracking-[-0.48px] text-(--color-text-primary) font-(family-name:--font-data)",
+          valueClassName
+        )}
+      >
         {value}
       </span>
 

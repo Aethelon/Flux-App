@@ -39,6 +39,7 @@ interface DataTableProps<T> {
   tabs?: TabItem[]
   activeTab?: string
   onTabChange?: (tab: string) => void
+  filters?: React.ReactNode
   actions?: React.ReactNode
   loading?: boolean
   emptyMessage?: string
@@ -57,6 +58,7 @@ export function DataTable<T>({
   tabs,
   activeTab,
   onTabChange,
+  filters,
   actions,
   loading,
   emptyMessage = "Nenhum registro encontrado.",
@@ -68,7 +70,7 @@ export function DataTable<T>({
 
   return (
     <div className={cn("rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden", className)}>
-      {(tabs || actions) && (
+      {(tabs || filters || actions) && (
         <div className="flex items-center justify-between gap-4 px-3 py-3 border-b border-(--color-border) bg-(--color-surface-raised)">
           {tabs && (
             <Tabs value={activeTab} onValueChange={onTabChange}>
@@ -81,6 +83,7 @@ export function DataTable<T>({
               </TabsList>
             </Tabs>
           )}
+          {filters && <div className="flex items-center gap-2">{filters}</div>}
           {actions && <div className="flex items-center gap-2 ml-auto">{actions}</div>}
         </div>
       )}
