@@ -9,8 +9,6 @@ import { StatusBadge } from "@/components/shared/StatusBadge"
 import { FilterDropdown } from "@/components/shared/FilterDropdown"
 import { TableSearchInput } from "@/components/shared/TableSearchInput"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Dialog,
   DialogContent,
@@ -30,26 +28,12 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog"
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select"
+  ClientFormFields,
+  EMPTY_CLIENT_FORM,
+  type ClientFormValues,
+} from "@/components/shared/ClientFormFields"
+import { useClientsStore } from "@/store/clientsStore"
 import type { Client } from "@/types/client"
-
-const INITIAL_CLIENTS: Client[] = [
-  { id: "1",  name: "Ana Silva",       email: "ana.silva@email.com",      phone: "(11) 98765-4321", status: "Ativo",   createdAt: "2023-01-10", lastPurchase: "12 Out 2023" },
-  { id: "2",  name: "Carlos Oliveira", email: "carlos.o@empresa.com.br",  phone: "(21) 99988-7766", status: "Ativo",   createdAt: "2023-02-05", lastPurchase: "05 Nov 2023" },
-  { id: "3",  name: "Mariana Pereira", email: "mari.p@dominio.com",        phone: "(31) 97766-5544", status: "Inativo", createdAt: "2023-03-14", lastPurchase: "14 Mar 2023" },
-  { id: "4",  name: "Rafael Ribeiro",  email: "rafael.ribeiro@email.com", phone: "(41) 98855-2211", status: "Ativo",   createdAt: "2023-04-22", lastPurchase: "22 Nov 2023" },
-  { id: "5",  name: "Lucas Teixeira",  email: "lucas.tx@empresa.com",     phone: "(51) 99123-4567", status: "Ativo",   createdAt: "2023-05-01", lastPurchase: "Hoje" },
-  { id: "6",  name: "Fernanda Costa",  email: "fe.costa@email.com",       phone: "(11) 91234-5678", status: "Ativo",   createdAt: "2023-06-10", lastPurchase: "01 Dez 2023" },
-  { id: "7",  name: "Bruno Mendes",    email: "bruno.m@empresa.com.br",   phone: "(31) 92233-4455", status: "Inativo", createdAt: "2023-07-14", lastPurchase: "20 Ago 2023" },
-  { id: "8",  name: "Julia Santos",    email: "ju.santos@dominio.com",    phone: "(41) 93344-5566", status: "Ativo",   createdAt: "2023-08-22", lastPurchase: "10 Jan 2024" },
-  { id: "9",  name: "Pedro Alves",     email: "pedro.a@empresa.com",      phone: "(51) 94455-6677", status: "Ativo",   createdAt: "2023-09-01", lastPurchase: "Hoje" },
-  { id: "10", name: "Camila Rocha",    email: "camila.r@email.com",       phone: "(21) 95566-7788", status: "Inativo", createdAt: "2023-10-14", lastPurchase: "05 Fev 2024" },
-]
 
 const AVATAR_COLORS = [
   "bg-[#5B6AF0]",
@@ -84,17 +68,12 @@ const STATUS_FILTERS = [
 
 const PER_PAGE = 10
 
-interface ClientForm {
-  name: string
-  email: string
-  phone: string
-  status: "Ativo" | "Inativo"
-}
-
-const EMPTY_FORM: ClientForm = { name: "", email: "", phone: "", status: "Ativo" }
-
 export default function ClientesPage() {
-  const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS)
+  const clients = useClientsStore((s) => s.clients)
+  const addClient = useClientsStore((s) => s.addClient)
+  const updateClient = useClientsStore((s) => s.updateClient)
+  const removeClient = useClientsStore((s) => s.removeClient)
+
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("todos")
   const [page, setPage] = useState(1)
@@ -103,7 +82,7 @@ export default function ClientesPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
-  const [form, setForm] = useState<ClientForm>(EMPTY_FORM)
+  const [form, setForm] = useState<ClientFormValues>(EMPTY_CLIENT_FORM)
 
   const filtered = clients.filter((c) => {
     if (search && !c.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -114,7 +93,7 @@ export default function ClientesPage() {
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   function openAdd() {
-    setForm(EMPTY_FORM)
+    setForm(EMPTY_CLIENT_FORM)
     setAddOpen(true)
   }
 
@@ -130,31 +109,21 @@ export default function ClientesPage() {
   }
 
   function handleAdd() {
-    const newClient: Client = {
-      id: String(Date.now()),
-      ...form,
-      createdAt: new Date().toISOString().slice(0, 10),
-      lastPurchase: "—",
-    }
-    setClients((prev) => [newClient, ...prev])
+    addClient(form)
     setAddOpen(false)
     toast.success("Cliente adicionado com sucesso.")
   }
 
   function handleEdit() {
     if (!selectedClient) return
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === selectedClient.id ? { ...c, ...form } : c
-      )
-    )
+    updateClient(selectedClient.id, form)
     setEditOpen(false)
     toast.success("Cliente atualizado.")
   }
 
   function handleDelete() {
     if (!selectedClient) return
-    setClients((prev) => prev.filter((c) => c.id !== selectedClient.id))
+    removeClient(selectedClient.id)
     setDeleteOpen(false)
     toast.success(`${selectedClient.name} foi removido.`)
     setSelectedClient(null)
@@ -208,7 +177,7 @@ export default function ClientesPage() {
     <div>
       <PageHeader
         title="Clientes"
-        subtitle="Gerencie sua base de clientes e histórico de compras"
+        subtitle="Gerencie sua base de clientes"
       />
 
       <DataTable
@@ -327,62 +296,6 @@ export default function ClientesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
-  )
-}
-
-function ClientFormFields({
-  form,
-  onChange,
-}: {
-  form: ClientForm
-  onChange: (f: ClientForm) => void
-}) {
-  return (
-    <div className="flex flex-col gap-4 py-2">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-name">Nome</Label>
-        <Input
-          id="client-name"
-          placeholder="Nome completo"
-          value={form.name}
-          onChange={(e) => onChange({ ...form, name: e.target.value })}
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-email">E-mail</Label>
-        <Input
-          id="client-email"
-          type="email"
-          placeholder="email@exemplo.com"
-          value={form.email}
-          onChange={(e) => onChange({ ...form, email: e.target.value })}
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-phone">Telefone</Label>
-        <Input
-          id="client-phone"
-          placeholder="(00) 00000-0000"
-          value={form.phone}
-          onChange={(e) => onChange({ ...form, phone: e.target.value })}
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-status">Status</Label>
-        <Select
-          value={form.status}
-          onValueChange={(v) => onChange({ ...form, status: v as "Ativo" | "Inativo" })}
-        >
-          <SelectTrigger id="client-status">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="Ativo">Ativo</SelectItem>
-            <SelectItem value="Inativo">Inativo</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
     </div>
   )
 }

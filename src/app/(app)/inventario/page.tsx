@@ -38,7 +38,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
-import { formatCurrency } from "@/lib/formatters"
+import { formatCurrency, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { Product } from "@/types/product"
 
@@ -60,15 +60,6 @@ function getProductStatus(stock: number, minStock: number): Product["status"] {
   if (stock <= 0) return "Esgotado"
   if (stock <= minStock) return "Baixo estoque"
   return "Ativo"
-}
-
-function parsePriceInput(value: string): number {
-  const normalized = value.replace(/\./g, "").replace(",", ".")
-  return Number(normalized) || 0
-}
-
-function formatPriceInput(value: number): string {
-  return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 const INITIAL_PRODUCTS: Product[] = [
@@ -272,7 +263,7 @@ export default function InventarioPage() {
           <div className="flex items-center gap-2">
             <span className="font-medium">{row.name}</span>
             {!row.active && (
-              <span className="inline-flex items-center rounded-md bg-(--color-border)/40 px-1.5 py-0.5 text-[10px] font-medium uppercase text-(--color-text-secondary)">
+              <span className="inline-flex items-center rounded-md bg-border/40 px-1.5 py-0.5 text-[10px] font-medium uppercase text-(--color-text-secondary)">
                 Inativo
               </span>
             )}
@@ -343,12 +334,7 @@ export default function InventarioPage() {
 
   return (
     <div>
-      <PageHeader title="Inventário" subtitle="Gerencie seu estoque de produtos">
-        <Button className="gap-2 bg-(--color-accent) text-white" onClick={openAdd}>
-          <Plus size={16} />
-          Adicionar Produto
-        </Button>
-      </PageHeader>
+      <PageHeader title="Inventário" subtitle="Gerencie seu estoque de produtos" />
 
       <div className="grid grid-cols-4 gap-4 mb-8">
         <StatCard label="Total de Itens" value={totalItems.toLocaleString("pt-BR")} />
@@ -391,14 +377,24 @@ export default function InventarioPage() {
           </>
         }
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 text-(--color-text-secondary) border-(--color-border)"
-          >
-            <Download size={14} />
-            Exportar
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 text-(--color-text-secondary) border-(--color-border)"
+            >
+              <Download size={14} />
+              Exportar
+            </Button>
+            <Button
+              size="sm"
+              className="gap-2 bg-(--color-accent) text-white"
+              onClick={openAdd}
+            >
+              <Plus size={14} />
+              Adicionar Produto
+            </Button>
+          </>
         }
         pagination={{
           page,

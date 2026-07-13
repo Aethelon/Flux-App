@@ -1,11 +1,18 @@
-export type OrderStatus = "Pendente" | "Em Andamento" | "Concluído" | "Cancelado"
+export type OrderPriority = "baixa" | "média" | "alta"
+
+export interface KanbanColumn {
+  id: string
+  label: string
+  color: string
+}
 
 export interface Order {
   id: string
+  columnId: string
   title: string
+  description: string
   client: string
-  status: OrderStatus
-  priority: "baixa" | "média" | "alta"
-  createdAt: string
-  dueAt?: string
+  value: number
+  priority: OrderPriority
+  dueAt: string
 }

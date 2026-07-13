@@ -13,6 +13,15 @@ export function formatDate(date: string | Date): string {
   }).format(new Date(date))
 }
 
+export function parsePriceInput(value: string): number {
+  const normalized = value.replace(/\./g, "").replace(",", ".")
+  return Number(normalized) || 0
+}
+
+export function formatPriceInput(value: number): string {
+  return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export function formatPhone(phone: string): string {
   const digits = phone.replace(/\D/g, "")
   if (digits.length === 11) {
