@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/select"
 import { formatCurrency, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
+import { INITIAL_PRODUCTS } from "@/data/products"
 import type { Product } from "@/types/product"
 
 // Mantido em sincronia com as categorias cadastradas em Configurações > Categorias.
@@ -61,19 +62,6 @@ function getProductStatus(stock: number, minStock: number): Product["status"] {
   if (stock <= minStock) return "Baixo estoque"
   return "Ativo"
 }
-
-const INITIAL_PRODUCTS: Product[] = [
-  { id: "1",  name: "Câmera de Segurança 1080p",      description: "Câmera de segurança Full HD com visão noturna e detecção de movimento.",      barcode: "7891234560011", category: "Produto Acabado", unit: "un", price: 1250.00, stock: 42,  minStock: 10, active: true,  status: "Ativo",         lastUpdate: "Última atualização: 2h atrás" },
-  { id: "2",  name: "Fone de Ouvido Bluetooth",        description: "Fone de ouvido sem fio com cancelamento de ruído e até 20h de bateria.",       barcode: "7891234560028", category: "Produto Acabado", unit: "un", price: 450.00,  stock: 5,   minStock: 10, active: true,  status: "Baixo estoque", lastUpdate: "Última atualização: 5h atrás" },
-  { id: "3",  name: "Relógio Inteligente",             description: "Relógio inteligente com monitor cardíaco, GPS e notificações.",                barcode: "7891234560035", category: "Produto Acabado", unit: "un", price: 899.00,  stock: 0,   minStock: 10, active: true,  status: "Esgotado",      lastUpdate: "Esgotado há 2 dias" },
-  { id: "4",  name: "Luminária de Mesa LED",           description: "Luminária de mesa LED com controle de intensidade e temperatura de cor.",      barcode: "7891234560042", category: "Produto Acabado", unit: "un", price: 79.90,   stock: 120, minStock: 10, active: true,  status: "Ativo",         lastUpdate: "Última atualização: 1d atrás" },
-  { id: "5",  name: "Caixa de Som Portátil",           description: "Caixa de som portátil à prova d'água com 12h de autonomia.",                   barcode: "7891234560059", category: "Produto Acabado", unit: "un", price: 320.00,  stock: 18,  minStock: 10, active: true,  status: "Ativo",         lastUpdate: "Última atualização: 3h atrás" },
-  { id: "6",  name: "Tecido Impermeável (rolo)",       description: "Rolo de tecido impermeável utilizado na fabricação de bolsas e mochilas.",      barcode: "",              category: "Matéria-Prima",   unit: "m",  price: 24.90,   stock: 85,  minStock: 20, active: true,  status: "Ativo",         lastUpdate: "Última atualização: 6h atrás" },
-  { id: "7",  name: "Teclado Mecânico RGB",            description: "Teclado mecânico com iluminação RGB, descontinuado pelo fabricante.",           barcode: "7891234560073", category: "Produto Acabado", unit: "un", price: 399.00,  stock: 0,   minStock: 10, active: false, status: "Esgotado",      lastUpdate: "Esgotado há 5 dias" },
-  { id: "8",  name: "Cadeira Ergonômica",              description: "Cadeira ergonômica com apoio lombar ajustável e regulagem de altura.",          barcode: "7891234560080", category: "Produto Acabado", unit: "un", price: 1450.00, stock: 27,  minStock: 10, active: true,  status: "Ativo",         lastUpdate: "Última atualização: 12h atrás" },
-  { id: "9",  name: "Caixa de Papelão Personalizada",  description: "Caixa de papelão personalizada para embalagem de produtos acabados.",           barcode: "",              category: "Embalagem",       unit: "un", price: 3.20,    stock: 6,   minStock: 10, active: true,  status: "Baixo estoque", lastUpdate: "Última atualização: 1d atrás" },
-  { id: "10", name: "Instalação e Configuração",       description: "Serviço de instalação e configuração de equipamentos no local do cliente.",     barcode: "",              category: "Serviços",        unit: "un", price: 150.00,  stock: 30,  minStock: 5,  active: true,  status: "Ativo",         lastUpdate: "Última atualização: 4h atrás" },
-]
 
 function StockCell({ product }: { product: Product }) {
   const dotClass =

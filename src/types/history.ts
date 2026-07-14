@@ -1,10 +1,10 @@
+import type { Payment } from "./payment"
+
 export interface HistoryItem {
   name: string
   quantity: number
   total: number
 }
-
-export type PaymentMethod = "Pix" | "Cartão de Crédito" | "Cartão de Débito" | "Dinheiro"
 
 export interface HistoryEntry {
   id: string
@@ -15,5 +15,7 @@ export interface HistoryEntry {
   type: "produto" | "servico"
   items: HistoryItem[]
   discount: number
-  paymentMethod: PaymentMethod
+  // Detalhamento completo do pagamento: uma ou mais formas, cada uma com seu
+  // valor e, no cartão, tipo e parcelas. Mesmo modelo produzido pela Frente de Caixa.
+  payments: Payment[]
 }
