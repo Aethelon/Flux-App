@@ -6,6 +6,29 @@ Aplicação de gestão de varejo e produção (ERP simplificado) construída em 
 
 ---
 
+## Princípios de Produto (prioridade máxima)
+
+> **Antes de qualquer decisão de UI, layout ou nova feature, a regra de negócio e a coesão entre as telas vêm sempre em primeiro lugar.** Estética e "insights bonitos" nunca justificam quebrar estas duas regras.
+
+### 1. Regra de negócio primeiro
+
+Todo indicador, coluna, card ou tela só existe se o dado que o alimenta **existir de fato no modelo** e for **calculável com o que o sistema captura**. Nada de métricas inventadas ou que dependem de dados fora do escopo.
+
+- Antes de adicionar uma métrica, responda: _"o Flux tem os dados para calcular isso?"_. Se não tiver, ou o dado é adicionado ao modelo (quando fizer sentido no escopo), ou a métrica não entra.
+- A base do escopo é o documento de fábrica de software (previsão de demanda por regressão linear, giro de estoque, reposição, promoções de baixo giro, faturamento, margem estimada, ordens de serviço). O **não-escopo** também manda: sem integração contábil, sem NF, sem marketplaces, sem ML além de regressão linear.
+- Exemplos já aplicados: **Margem/Lucro** exigem custo de compra (que o produto não guarda) → removidos até existir o campo. **Taxa de Ruptura** foi redefinida para "produtos que zeraram estoque" (mensurável) em vez de "venda perdida na hora" (não registrável). **Lote Econômico (LEC)** foi removido por depender de custo de pedido/frete fora do escopo.
+- Toda métrica deve deixar explícito **o quê**, **o período** e, quando útil, **a fórmula** — para o usuário não ficar em dúvida sobre a origem do número.
+
+### 2. Coesão entre as telas
+
+As telas compartilham as mesmas entidades e devem se comportar como **um sistema único**, não peças isoladas.
+
+- **Fonte de dados única.** Entidades compartilhadas (clientes, produtos, ordens…) vivem em um store/serviço comum — o que é criado/editado numa tela reflete em todas as outras (ex.: `clientsStore` usado pela tela de Clientes e pelo combobox de Ordens).
+- **Componentes e padrões reaproveitados.** Mesmos filtros (`FilterDropdown`, `TableSearchInput`), mesma tabela (`DataTable`), mesmos formulários/modais (add = edit), mesmos toasts e loading states em todas as telas. Nada de reimplementar o mesmo padrão de formas diferentes.
+- **Vocabulário e valores consistentes.** Um número que aparece em duas telas deve ser o mesmo número; um status/label tem sempre o mesmo nome e a mesma cor semântica (ver Padrão de Badge de Status).
+
+---
+
 ## Stack
 
 | Camada | Tecnologia |
