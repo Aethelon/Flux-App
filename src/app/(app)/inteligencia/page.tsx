@@ -30,6 +30,7 @@ import {
 import { RevenueForecastChart, type ForecastPoint } from "@/components/analytics/RevenueForecastChart"
 import { formatCurrency } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
+import { SEASONALITIES } from "@/data/insights"
 
 type Segment = "produto" | "servico"
 type Period = "mensal" | "trimestral"
@@ -145,19 +146,6 @@ const REPLENISHMENTS: Replenishment[] = [
     suggestedQty: "Repor 90 un",
     urgency: "média",
   },
-]
-
-interface Seasonality {
-  title: string
-  detail: string
-  impact: string
-}
-
-const SEASONALITIES: Seasonality[] = [
-  { title: "Dia das Mães",          detail: "Pico de enxovais",                   impact: "+50%" },
-  { title: "Festa Junina",          detail: "Alta procura por trajes e retalhos", impact: "+25%" },
-  { title: "Black Friday",          detail: "Sexta de promoções de enxovais",     impact: "+160%" },
-  { title: "Dezembro e fim de ano", detail: "Pico de enxovais para festas",       impact: "+90%" },
 ]
 
 type Tone = "success" | "warning" | "danger" | "accent" | "neutral"
