@@ -40,30 +40,23 @@ import {
 } from "@/components/ui/select"
 import { formatCurrency, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import { INITIAL_PRODUCTS } from "@/data/products"
+import { INITIAL_PRODUCTS, isService } from "@/data/products"
+import { useCategoriesStore } from "@/store/categoriesStore"
+import { useUnitsStore } from "@/store/unitsStore"
+import type { Unit, Category } from "@/types/settings"
 import type { Product } from "@/types/product"
 
-// Mantido em sincronia com as categorias cadastradas em Configurações > Categorias.
-// Numa integração real, ambas as telas consumiriam a mesma listagem via API.
-const CATEGORIES = ["Matéria-Prima", "Produto Acabado", "Embalagem", "Serviços"]
-
-// Mantido em sincronia com as unidades cadastradas em Configurações > Unidades de Medida.
-const UNITS = [
-  { abbreviation: "un", name: "Unidade" },
-  { abbreviation: "kg", name: "Quilograma" },
-  { abbreviation: "m", name: "Metro" },
-  { abbreviation: "m²", name: "Metro Quadrado" },
-  { abbreviation: "l", name: "Litro" },
-  { abbreviation: "cx", name: "Caixa" },
-]
-
-function getProductStatus(stock: number, minStock: number): Product["status"] {
+function getProductStatus(stock: number, minStock: number, category: string): Product["status"] {
+  if (isService(category)) return "Ativo" // serviço não controla estoque
   if (stock <= 0) return "Esgotado"
   if (stock <= minStock) return "Baixo estoque"
   return "Ativo"
 }
 
 function StockCell({ product }: { product: Product }) {
+  if (isService(product.category)) {
+    return <span className="text-[14px] text-(--color-text-secondary)">Sob demanda</span>
+  }
   const dotClass =
     product.status === "Esgotado"
       ? "bg-(--color-danger)"
@@ -86,11 +79,6 @@ function StockCell({ product }: { product: Product }) {
     </div>
   )
 }
-
-const CATEGORY_FILTERS = [
-  { value: "todas", label: "Todas" },
-  ...CATEGORIES.map((c) => ({ value: c, label: c })),
-]
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "todos", label: "Todos" },
@@ -117,8 +105,8 @@ const EMPTY_FORM: ProductForm = {
   name: "",
   description: "",
   barcode: "",
-  category: CATEGORIES[0],
-  unit: UNITS[0].abbreviation,
+  category: "",
+  unit: "",
   stock: "",
   price: "",
   minStock: "0",
@@ -127,6 +115,15 @@ const EMPTY_FORM: ProductForm = {
 
 export default function InventarioPage() {
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS)
+
+  // Categorias e unidades vêm dos mesmos stores editados em Configurações —
+  // cadastrar/renomear lá reflete aqui imediatamente.
+  const categories = useCategoriesStore((s) => s.categories)
+  const units = useUnitsStore((s) => s.units)
+  const categoryFilters = [
+    { value: "todas", label: "Todas" },
+    ...categories.map((c) => ({ value: c.name, label: c.name })),
+  ]
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("todas")
   const [statusFilter, setStatusFilter] = useState("todos")
@@ -139,8 +136,10 @@ export default function InventarioPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductForm>(EMPTY_FORM)
 
-  const totalItems = products.reduce((sum, p) => sum + p.stock, 0)
-  const totalValue = products.reduce((sum, p) => sum + p.stock * p.price, 0)
+  // Serviços ficam fora das métricas de estoque (não têm itens armazenados).
+  const stockControlled = products.filter((p) => !isService(p.category))
+  const totalItems = stockControlled.reduce((sum, p) => sum + p.stock, 0)
+  const totalValue = stockControlled.reduce((sum, p) => sum + p.stock * p.price, 0)
   const lowStockCount = products.filter((p) => p.status === "Baixo estoque").length
   const outOfStockCount = products.filter((p) => p.status === "Esgotado").length
 
@@ -154,7 +153,11 @@ export default function InventarioPage() {
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   function openAdd() {
-    setForm(EMPTY_FORM)
+    setForm({
+      ...EMPTY_FORM,
+      category: categories[0]?.name ?? "",
+      unit: units[0]?.abbreviation ?? "",
+    })
     setAddOpen(true)
   }
 
@@ -185,8 +188,9 @@ export default function InventarioPage() {
   }
 
   function handleAdd() {
-    const stock = Number(form.stock) || 0
-    const minStock = Number(form.minStock) || 0
+    const service = isService(form.category)
+    const stock = service ? 0 : Number(form.stock) || 0
+    const minStock = service ? 0 : Number(form.minStock) || 0
     const newProduct: Product = {
       id: String(Date.now()),
       name: form.name,
@@ -198,7 +202,7 @@ export default function InventarioPage() {
       stock,
       minStock,
       active: form.active,
-      status: getProductStatus(stock, minStock),
+      status: getProductStatus(stock, minStock, form.category),
       lastUpdate: "Última atualização: agora",
     }
     setProducts((prev) => [newProduct, ...prev])
@@ -208,8 +212,9 @@ export default function InventarioPage() {
 
   function handleEdit() {
     if (!selectedProduct) return
-    const stock = Number(form.stock) || 0
-    const minStock = Number(form.minStock) || 0
+    const service = isService(form.category)
+    const stock = service ? 0 : Number(form.stock) || 0
+    const minStock = service ? 0 : Number(form.minStock) || 0
     setProducts((prev) =>
       prev.map((p) =>
         p.id === selectedProduct.id
@@ -224,7 +229,7 @@ export default function InventarioPage() {
               stock,
               minStock,
               active: form.active,
-              status: getProductStatus(stock, minStock),
+              status: getProductStatus(stock, minStock, form.category),
               lastUpdate: "Última atualização: agora",
             }
           : p
@@ -353,7 +358,7 @@ export default function InventarioPage() {
             <FilterDropdown
               label="Categoria"
               value={categoryFilter}
-              options={CATEGORY_FILTERS}
+              options={categoryFilters}
               onChange={(v) => { setCategoryFilter(v); setPage(1) }}
             />
             <FilterDropdown
@@ -398,7 +403,7 @@ export default function InventarioPage() {
           <DialogHeader>
             <DialogTitle>Novo Produto</DialogTitle>
           </DialogHeader>
-          <ProductFormFields form={form} onChange={setForm} />
+          <ProductFormFields form={form} onChange={setForm} categories={categories} units={units} />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setAddOpen(false)}>
               Cancelar
@@ -420,7 +425,7 @@ export default function InventarioPage() {
           <DialogHeader>
             <DialogTitle>Editar Produto</DialogTitle>
           </DialogHeader>
-          <ProductFormFields form={form} onChange={setForm} />
+          <ProductFormFields form={form} onChange={setForm} categories={categories} units={units} />
           <DialogFooter showCloseButton={false} className="sm:justify-between">
             <Button
               type="button"
@@ -473,10 +478,12 @@ export default function InventarioPage() {
                 <span className="text-(--color-text-secondary)">Estoque</span>
                 <StockCell product={selectedProduct} />
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-(--color-text-secondary)">Estoque mínimo</span>
-                <span>{selectedProduct.minStock} {selectedProduct.unit}</span>
-              </div>
+              {!isService(selectedProduct.category) && (
+                <div className="flex items-center justify-between">
+                  <span className="text-(--color-text-secondary)">Estoque mínimo</span>
+                  <span>{selectedProduct.minStock} {selectedProduct.unit}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-(--color-text-secondary)">Preço Unit.</span>
                 <span>{formatCurrency(selectedProduct.price)}</span>
@@ -531,10 +538,15 @@ export default function InventarioPage() {
 function ProductFormFields({
   form,
   onChange,
+  categories,
+  units,
 }: {
   form: ProductForm
   onChange: (f: ProductForm) => void
+  categories: Category[]
+  units: Unit[]
 }) {
+  const service = isService(form.category)
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-col gap-1.5">
@@ -575,8 +587,8 @@ function ProductFormFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -591,8 +603,8 @@ function ProductFormFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {UNITS.map((u) => (
-                <SelectItem key={u.abbreviation} value={u.abbreviation}>
+              {units.map((u) => (
+                <SelectItem key={u.id} value={u.abbreviation}>
                   {u.abbreviation} — {u.name}
                 </SelectItem>
               ))}
@@ -606,8 +618,9 @@ function ProductFormFields({
           <Input
             id="product-stock"
             type="number"
-            placeholder="Ex: 5"
-            value={form.stock}
+            placeholder={service ? "Sob demanda" : "Ex: 5"}
+            value={service ? "" : form.stock}
+            disabled={service}
             onChange={(e) => onChange({ ...form, stock: e.target.value })}
           />
         </div>
@@ -628,8 +641,9 @@ function ProductFormFields({
           <Input
             id="product-min-stock"
             type="number"
-            placeholder="0"
-            value={form.minStock}
+            placeholder={service ? "—" : "0"}
+            value={service ? "" : form.minStock}
+            disabled={service}
             onChange={(e) => onChange({ ...form, minStock: e.target.value })}
           />
         </div>

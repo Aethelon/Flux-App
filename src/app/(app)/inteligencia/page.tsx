@@ -28,22 +28,77 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { RevenueForecastChart, type ForecastPoint } from "@/components/analytics/RevenueForecastChart"
+import { MiniLine } from "@/components/shared/MiniLine"
 import { formatCurrency } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { SEASONALITIES } from "@/data/insights"
+import { INITIAL_PRODUCTS } from "@/data/products"
+import { INITIAL_COLUMNS, INITIAL_ORDERS, CLOSED_COLUMN_IDS, visibleOrders } from "@/data/orders"
+import { INITIAL_HISTORY, revenueByType, REVENUE_TREND, TREND_LABELS } from "@/data/history"
 
 type Segment = "produto" | "servico"
 type Period = "mensal" | "trimestral"
 
+// ── Dados derivados das fontes compartilhadas (mesmos números do Dashboard,
+// do Histórico, do Inventário e das Ordens) ──
+const CRITICAL_STOCK = INITIAL_PRODUCTS.filter((p) => p.status !== "Ativo").length
+// Mesmo conjunto visível no board de Ordens (concluídas antigas arquivadas).
+const BOARD_ORDERS = visibleOrders(INITIAL_ORDERS)
+const OPEN_ORDERS = BOARD_ORDERS.filter(
+  (o) => !CLOSED_COLUMN_IDS.includes(o.columnId)
+).length
+
+// Faturamento = vendas da Frente de Caixa (produtos) + serviços.
+const REVENUE_BY_TYPE = revenueByType(INITIAL_HISTORY)
+const TOTAL_REVENUE = REVENUE_BY_TYPE.produto + REVENUE_BY_TYPE.servico
+const REVENUE_SERIES = [
+  ...REVENUE_TREND.produto.map((v, i) => v + REVENUE_TREND.servico[i]),
+  TOTAL_REVENUE,
+]
+const PREV_MONTH_REVENUE = REVENUE_SERIES[REVENUE_SERIES.length - 2]
+const REVENUE_GROWTH = ((TOTAL_REVENUE / PREV_MONTH_REVENUE - 1) * 100)
+  .toFixed(1)
+  .replace(".", ",")
+const TICKET_AVG = TOTAL_REVENUE / INITIAL_HISTORY.length
+
+// Janelas trimestrais (mai–jul vs fev–abr) para o relatório trimestral.
+const QUARTER_REVENUE = REVENUE_SERIES.slice(3).reduce((sum, v) => sum + v, 0)
+const PREV_QUARTER_REVENUE = REVENUE_SERIES.slice(0, 3).reduce((sum, v) => sum + v, 0)
+const QUARTER_GROWTH = ((QUARTER_REVENUE / PREV_QUARTER_REVENUE - 1) * 100)
+  .toFixed(1)
+  .replace(".", ",")
+
+// Evolução mensal dos demais KPIs: 5 meses mock + valor atual derivado.
+const SALES_SERIES = [11, 13, 15, 14, 16, INITIAL_HISTORY.length]
+const CRITICAL_SERIES = [6, 7, 9, 8, 10, CRITICAL_STOCK]
+
+function kpiPoints(series: number[], display: (v: number) => string) {
+  return series.map((value, i) => ({
+    label: TREND_LABELS[i],
+    value,
+    display: display(value),
+    highlight: i === series.length - 1,
+  }))
+}
+
+// Distribuição das ordens por status (pizza), direto do board de Ordens.
+const ORDER_SLICES = INITIAL_COLUMNS.map((col) => ({
+  label: col.label,
+  color: col.color,
+  value: BOARD_ORDERS.filter((o) => o.columnId === col.id).length,
+}))
+
+// Projeção ancorada na série real: os meses realizados vêm da mesma fonte
+// dos KPIs; a curva projetada parte do mês atual.
 const FORECAST: ForecastPoint[] = [
-  { label: "Jan", realized: 22000, projected: null },
-  { label: "Fev", realized: 26500, projected: null },
-  { label: "Mar", realized: 31200, projected: null },
-  { label: "Abr", realized: 35800, projected: null },
-  { label: "Mai", realized: 42850, projected: 42850 },
-  { label: "Jun", realized: null, projected: 47500 },
-  { label: "Jul", realized: null, projected: 52000 },
-  { label: "Ago", realized: null, projected: 58200 },
+  { label: "Fev", realized: REVENUE_SERIES[0], projected: null },
+  { label: "Mar", realized: REVENUE_SERIES[1], projected: null },
+  { label: "Abr", realized: REVENUE_SERIES[2], projected: null },
+  { label: "Mai", realized: REVENUE_SERIES[3], projected: null },
+  { label: "Jun", realized: REVENUE_SERIES[4], projected: null },
+  { label: "Jul", realized: TOTAL_REVENUE, projected: TOTAL_REVENUE },
+  { label: "Ago", realized: null, projected: 13900 },
+  { label: "Set", realized: null, projected: 15400 },
 ]
 
 interface TopSale {
@@ -53,51 +108,64 @@ interface TopSale {
   revenue: number
 }
 
-const TOP_SALES: Record<Segment, TopSale[]> = {
-  produto: [
-    { item: "Travesseiro de Pluma de Ganso",    code: "3212310-004", sales: "490 un", revenue: 54000 },
-    { item: "Tapete Fibra Natural Geométrico",  code: "9876412-771", sales: "150 un", revenue: 24000 },
-    { item: "Edredom Casal Karsten",            code: "9762388-120", sales: "88 un",  revenue: 17800 },
-    { item: "Toalha Premium Karsten",           code: "9874563-509", sales: "97 un",  revenue: 13600 },
-  ],
-  servico: [
-    { item: "Higienização de Colchão",          code: "SRV-HIG-002", sales: "180 os", revenue: 12600 },
-    { item: "Impermeabilização de Sofá",        code: "SRV-IMP-003", sales: "75 os",  revenue: 9750 },
-    { item: "Lavagem de Edredom",               code: "SRV-LAV-001", sales: "210 os", revenue: 8400 },
-    { item: "Restauração de Cortinas",          code: "SRV-RES-004", sales: "40 os",  revenue: 6000 },
-  ],
+// Rankings baseados no catálogo real (mesmos nomes, códigos de barras e preços
+// do Inventário). Faturamento = quantidade × preço unitário do catálogo.
+// Serviços não têm código de barras — o catálogo tem 4 serviços, então cada
+// ranking mostra 2 para maiores e menores não se sobreporem. O período alterna
+// entre o acumulado do mês atual e o do trimestre.
+const TOP_SALES: Record<Period, Record<Segment, TopSale[]>> = {
+  mensal: {
+    produto: [
+      { item: "Jogo de Cama Casal",       code: "7891234560141", sales: "18 un", revenue: 3418.2 },
+      { item: "Edredom Queen",            code: "7891234560158", sales: "10 un", revenue: 2590 },
+      { item: "Kit Toalha Banho (4pç)",   code: "7891234560172", sales: "12 un", revenue: 1558.8 },
+      { item: "Travesseiro Nasa",         code: "7891234560165", sales: "15 un", revenue: 1348.5 },
+    ],
+    servico: [
+      { item: "Bordado Personalizado",    code: "—", sales: "14 os", revenue: 630 },
+      { item: "Entrega Expressa",         code: "—", sales: "18 os", revenue: 450 },
+    ],
+  },
+  trimestral: {
+    produto: [
+      { item: "Jogo de Cama Casal",       code: "7891234560141", sales: "52 un", revenue: 9874.8 },
+      { item: "Edredom Queen",            code: "7891234560158", sales: "28 un", revenue: 7252 },
+      { item: "Kit Toalha Banho (4pç)",   code: "7891234560172", sales: "34 un", revenue: 4416.6 },
+      { item: "Travesseiro Nasa",         code: "7891234560165", sales: "42 un", revenue: 3775.8 },
+    ],
+    servico: [
+      { item: "Bordado Personalizado",    code: "—", sales: "40 os", revenue: 1800 },
+      { item: "Entrega Expressa",         code: "—", sales: "50 os", revenue: 1250 },
+    ],
+  },
 }
 
-const LOW_SALES: Record<Segment, TopSale[]> = {
-  produto: [
-    { item: "Kit de Enxoval Premium",          code: "8823410-115", sales: "3 un",  revenue: 900 },
-    { item: "Jogo Cama King Karsten",          code: "7719022-380", sales: "5 un",  revenue: 1750 },
-    { item: "Manta Nasa Casal",                code: "6650187-244", sales: "8 un",  revenue: 1200 },
-    { item: "Cortina Blackout 2,80m",          code: "5540321-902", sales: "11 un", revenue: 2090 },
-  ],
-  servico: [
-    { item: "Reparo de Edredom",               code: "SRV-REP-008", sales: "9 os",  revenue: 810 },
-    { item: "Costura de Bainha",               code: "SRV-BAI-007", sales: "25 os", revenue: 500 },
-    { item: "Troca de Zíper",                  code: "SRV-ZIP-006", sales: "18 os", revenue: 540 },
-    { item: "Ajuste de Cortinas",              code: "SRV-AJU-005", sales: "12 os", revenue: 960 },
-  ],
+const LOW_SALES: Record<Period, Record<Segment, TopSale[]>> = {
+  mensal: {
+    produto: [
+      { item: "Tapete Sala 300x320",      code: "7891234560189", sales: "1 un", revenue: 349 },
+      { item: "Roupão Felpudo",           code: "7891234560240", sales: "1 un", revenue: 149 },
+      { item: "Protetor de Colchão",      code: "7891234560219", sales: "2 un", revenue: 159.8 },
+      { item: "Almofada Decorativa",      code: "7891234560257", sales: "3 un", revenue: 119.7 },
+    ],
+    servico: [
+      { item: "Embalagem para Presente",  code: "—", sales: "4 os", revenue: 40 },
+      { item: "Ajuste de Medidas",        code: "—", sales: "6 os", revenue: 210 },
+    ],
+  },
+  trimestral: {
+    produto: [
+      { item: "Tapete Sala 300x320",      code: "7891234560189", sales: "3 un", revenue: 1047 },
+      { item: "Roupão Felpudo",           code: "7891234560240", sales: "3 un", revenue: 447 },
+      { item: "Protetor de Colchão",      code: "7891234560219", sales: "5 un", revenue: 399.5 },
+      { item: "Almofada Decorativa",      code: "7891234560257", sales: "8 un", revenue: 319.2 },
+    ],
+    servico: [
+      { item: "Embalagem para Presente",  code: "—", sales: "12 os", revenue: 120 },
+      { item: "Ajuste de Medidas",        code: "—", sales: "15 os", revenue: 525 },
+    ],
+  },
 }
-
-interface Kpi {
-  label: string
-  value: string
-  icon: LucideIcon
-  iconClass: string
-  hint: string
-  hintClass?: string
-}
-
-const KPIS: Kpi[] = [
-  { label: "Faturamento do Mês", value: "R$ 42.850,00", icon: DollarSign,    iconClass: "bg-(--color-success)/15 text-(--color-success)", hint: "+12,5% vs mês anterior", hintClass: "text-(--color-success)" },
-  { label: "Vendas Realizadas",  value: "47",           icon: ShoppingCart,  iconClass: "bg-primary/15 text-(--color-accent)",   hint: "vendas no mês" },
-  { label: "Estoque Crítico",    value: "5",            icon: TriangleAlert, iconClass: "bg-(--color-warning)/15 text-(--color-warning)", hint: "produtos abaixo do mínimo", hintClass: "text-(--color-warning)" },
-  { label: "Ordens de Serviço",  value: "13",           icon: Wrench,        iconClass: "bg-(--color-info)/15 text-(--color-info)",       hint: "3 em atraso" },
-]
 
 interface Promo {
   title: string
@@ -105,18 +173,19 @@ interface Promo {
   description: string
 }
 
+// Sugestões ancoradas nos itens de menor giro do ranking (Menores Vendas).
 const PROMOS: Promo[] = [
   {
-    title: "Kit de Enxoval",
-    subtitle: "Produtos A, B, C, D, E",
+    title: "Kit Quarto Completo",
+    subtitle: "Tapete Sala 300x320 + Manta de Microfibra + Almofada Decorativa",
     description:
-      "Monte kits promocionais com desconto progressivo (30% no 2º item, 20% no 3º) para acelerar o giro de itens parados. Estoque com capital imobilizado e giro zero.",
+      "Monte kits promocionais com desconto progressivo (30% no 2º item, 20% no 3º) para acelerar o giro de itens parados. Estoque com capital imobilizado e giro quase zero.",
   },
   {
-    title: "Jogo Cama King Karsten",
+    title: "Roupão Felpudo",
     subtitle: "Venda casada",
     description:
-      "Ofereça em venda casada ao adquirir qualquer kit de enxoval, ou como brinde em compras acima de um valor definido. Item classificado como encalhe, sem giro no período.",
+      "Ofereça em venda casada ao adquirir qualquer kit toalha de banho, ou como brinde em compras acima de um valor definido. Apenas 3 unidades vendidas no período.",
   },
 ]
 
@@ -127,23 +196,24 @@ interface Replenishment {
   urgency: "alta" | "média"
 }
 
+// Itens reais do Inventário com alto giro e estoque no mínimo ou abaixo dele.
 const REPLENISHMENTS: Replenishment[] = [
   {
-    product: "Travesseiro de Pluma de Ganso",
-    reason: "Alto giro (490 un/mês) e estoque abaixo do mínimo de segurança.",
-    suggestedQty: "Repor 300 un",
+    product: "Travesseiro Nasa",
+    reason: "Alto giro (55 un/mês) e apenas 4 un em estoque, abaixo do mínimo de 10.",
+    suggestedQty: "Repor 60 un",
     urgency: "alta",
   },
   {
-    product: "Toalha Premium Karsten",
-    reason: "Estoque atual cobre apenas 6 dias de venda no ritmo atual.",
-    suggestedQty: "Repor 150 un",
+    product: "Lençol Avulso Solteiro",
+    reason: "Apenas 3 un em estoque para o mínimo de 10; risco de ruptura em dias.",
+    suggestedQty: "Repor 40 un",
     urgency: "alta",
   },
   {
-    product: "Edredom Casal Karsten",
-    reason: "Giro constante; reposição sugerida para manter o LEC.",
-    suggestedQty: "Repor 90 un",
+    product: "Cobertor Casal",
+    reason: "Estoque no limite do mínimo (10 un); reposição sugerida para manter o LEC.",
+    suggestedQty: "Repor 30 un",
     urgency: "média",
   },
 ]
@@ -205,9 +275,9 @@ const ANALYSES: { section: string; icon: LucideIcon; metrics: Metric[] }[] = [
     icon: ShoppingCart,
     metrics: [
       {
-        title: "Ticket Médio", value: "R$ 910",
+        title: "Ticket Médio", value: formatCurrency(TICKET_AVG),
         description: "Valor médio por venda no mês atual.",
-        viz: { kind: "spark", points: [820, 850, 870, 890, 900, 910], delta: "+5,4%", deltaPositive: true, tone: "success" },
+        viz: { kind: "spark", points: [560, 590, 620, 600, 630, TICKET_AVG], delta: "+5,1%", deltaPositive: true, tone: "success" },
       },
       {
         title: "Frequência de Compra", value: "2,3x/mês",
@@ -231,45 +301,75 @@ interface ReportSection {
   bullets?: string[]
 }
 
-const REPORT: ReportSection[] = [
-  {
-    title: "Resumo Executivo",
-    icon: FileText,
-    iconClass: "text-(--color-accent)",
-    intro:
-      "O faturamento do mês atingiu R$ 42.850, com crescimento de 12,5% frente ao mês anterior e mantendo a tendência de alta projetada para os próximos meses (previsão de R$ 58,2k em agosto). A operação está saudável, mas há capital imobilizado em itens de baixo giro e pontos de atenção no estoque e na produção.",
-  },
-  {
-    title: "Destaques do Período",
-    icon: TrendingUp,
-    iconClass: "text-(--color-success)",
-    bullets: [
-      "Tapete Fibra Natural Geométrico lidera em lucratividade, com 72% de margem e R$ 17.280 de lucro no mês.",
-      "47 vendas realizadas, com ticket médio de R$ 910 por venda.",
-      "Retenção de clientes em 86%, acima da meta de 80%.",
-    ],
-  },
-  {
-    title: "Pontos de Atenção",
-    icon: TriangleAlert,
-    iconClass: "text-(--color-warning)",
-    bullets: [
-      "5 produtos abaixo do estoque mínimo — risco de ruptura em itens de alta saída.",
-      "3 ordens de serviço em atraso (12% do total), acima da meta de 10%.",
-      "Ciclo financeiro em 34 dias, 4 dias acima da meta ideal.",
-    ],
-  },
-  {
-    title: "Recomendações",
-    icon: Lightbulb,
-    iconClass: "text-(--color-accent)",
-    bullets: [
-      "Estruturar kits promocionais 'Monte seu Enxoval' para girar os itens encalhados (Kit de Enxoval e Jogo Cama King Karsten).",
-      "Antecipar a reposição dos 5 itens críticos antes do pico sazonal do Dia das Mães (+50% previsto).",
-      "Revisar prazos de produção para reduzir o índice de atraso e o lead time médio (4,5 dias).",
-    ],
-  },
-]
+// Seções que não dependem do período selecionado.
+const REPORT_ATTENTION: ReportSection = {
+  title: "Pontos de Atenção",
+  icon: TriangleAlert,
+  iconClass: "text-(--color-warning)",
+  bullets: [
+    `${CRITICAL_STOCK} produtos abaixo do estoque mínimo ou esgotados — risco de ruptura em itens de alta saída.`,
+    "Índice de atraso nas entregas em 12%, acima da meta de 10%.",
+    "Ciclo financeiro em 34 dias, 4 dias acima da meta ideal.",
+  ],
+}
+
+const REPORT_RECOMMENDATIONS: ReportSection = {
+  title: "Recomendações",
+  icon: Lightbulb,
+  iconClass: "text-(--color-accent)",
+  bullets: [
+    "Estruturar kits promocionais 'Monte seu Enxoval' para girar os itens encalhados (Tapete Sala 300x320 e Roupão Felpudo).",
+    "Antecipar a reposição dos itens críticos de alta saída (Travesseiro Nasa, Lençol Avulso Solteiro e Cobertor Casal) antes do pico sazonal do Dia das Mães (+50% previsto).",
+    "Revisar prazos de produção para reduzir o índice de atraso e o lead time médio (4,5 dias).",
+  ],
+}
+
+// Relatório de IA por período: resumo e destaques refletem a janela de dados
+// selecionada (mês atual ou trimestre), com os mesmos números dos rankings.
+const REPORT: Record<Period, ReportSection[]> = {
+  mensal: [
+    {
+      title: "Resumo Executivo",
+      icon: FileText,
+      iconClass: "text-(--color-accent)",
+      intro:
+        `O faturamento do mês atingiu ${formatCurrency(TOTAL_REVENUE)} — soma das vendas da Frente de Caixa e dos serviços — com crescimento de ${REVENUE_GROWTH}% frente ao mês anterior e tendência de alta projetada (previsão de ${formatCurrency(15400)} em setembro). A operação está saudável, mas há capital imobilizado em itens de baixo giro e pontos de atenção no estoque e na produção.`,
+    },
+    {
+      title: "Destaques do Período",
+      icon: TrendingUp,
+      iconClass: "text-(--color-success)",
+      bullets: [
+        "Jogo de Cama Casal lidera as vendas do mês, com 18 unidades e R$ 3.418,20 de faturamento.",
+        `${INITIAL_HISTORY.length} vendas registradas no período, com ticket médio de ${formatCurrency(TICKET_AVG)} por venda.`,
+        "Retenção de clientes em 86%, acima da meta de 80%.",
+      ],
+    },
+    REPORT_ATTENTION,
+    REPORT_RECOMMENDATIONS,
+  ],
+  trimestral: [
+    {
+      title: "Resumo Executivo",
+      icon: FileText,
+      iconClass: "text-(--color-accent)",
+      intro:
+        `O faturamento acumulado do trimestre (maio a julho) atingiu ${formatCurrency(QUARTER_REVENUE)}, alta de ${QUARTER_GROWTH}% sobre os três meses anteriores (${formatCurrency(PREV_QUARTER_REVENUE)}). A operação está saudável, mas há capital imobilizado em itens de baixo giro e pontos de atenção no estoque e na produção.`,
+    },
+    {
+      title: "Destaques do Período",
+      icon: TrendingUp,
+      iconClass: "text-(--color-success)",
+      bullets: [
+        "Jogo de Cama Casal lidera as vendas do trimestre, com 52 unidades e R$ 9.874,80 de faturamento.",
+        `48 vendas realizadas no trimestre, com ticket médio de ${formatCurrency(QUARTER_REVENUE / 48)} por venda.`,
+        "Retenção de clientes em 86%, acima da meta de 80%.",
+      ],
+    },
+    REPORT_ATTENTION,
+    REPORT_RECOMMENDATIONS,
+  ],
+}
 
 const TONE_VAR: Record<Tone, string> = {
   success: "var(--color-success)",
@@ -327,6 +427,84 @@ function CardTitle({ children }: { children: React.ReactNode }) {
     <h2 className="text-[16px] font-semibold text-(--color-text-primary) font-(family-name:--font-ui)">
       {children}
     </h2>
+  )
+}
+
+const KPI_LABEL =
+  "text-[11px] font-semibold uppercase tracking-[0.55px] text-(--color-text-secondary) font-(family-name:--font-data)"
+const KPI_VALUE =
+  "mt-4 text-[28px] font-semibold leading-none tracking-[-0.56px] text-(--color-text-primary) font-(family-name:--font-data)"
+
+// Card de KPI com evolução mensal, no mesmo padrão do Dashboard.
+function KpiLineCard({
+  label,
+  value,
+  hint,
+  hintClass,
+  icon: Icon,
+  iconClass,
+  points,
+  lineColor,
+}: {
+  label: string
+  value: string
+  hint: string
+  hintClass?: string
+  icon: LucideIcon
+  iconClass: string
+  points: { label: string; value: number; display: string; highlight?: boolean }[]
+  lineColor?: string
+}) {
+  return (
+    <SurfaceCard className="flex flex-col p-5">
+      <div className="flex items-start justify-between">
+        <span className={KPI_LABEL}>{label}</span>
+        <span className={cn("flex size-8 items-center justify-center rounded-lg", iconClass)}>
+          <Icon size={16} />
+        </span>
+      </div>
+      <p className={KPI_VALUE}>{value}</p>
+      <p className={cn("mt-2 mb-4 text-[12px] font-medium", hintClass ?? "text-(--color-text-secondary)")}>
+        {hint}
+      </p>
+      <MiniLine data={points} color={lineColor} />
+    </SurfaceCard>
+  )
+}
+
+// Pizza simples em SVG: fatias proporcionais com as cores dos status do board.
+function PieChart({
+  slices,
+}: {
+  slices: { label: string; value: number; color: string }[]
+}) {
+  const total = slices.reduce((sum, s) => sum + s.value, 0)
+  // Ângulos acumulados pré-calculados (sem mutação durante o render).
+  const arcs: { label: string; color: string; start: number; end: number }[] = []
+  let acc = 0
+  for (const s of slices) {
+    if (s.value <= 0) continue
+    const start = (acc / total) * 2 * Math.PI
+    acc += s.value
+    const end = (acc / total) * 2 * Math.PI
+    arcs.push({ label: s.label, color: s.color, start, end })
+  }
+  return (
+    <svg viewBox="-1.05 -1.05 2.1 2.1" className="size-24 shrink-0 -rotate-90">
+      {arcs.map((a) => {
+        const large = a.end - a.start > Math.PI ? 1 : 0
+        const d = `M 0 0 L ${Math.cos(a.start)} ${Math.sin(a.start)} A 1 1 0 ${large} 1 ${Math.cos(a.end)} ${Math.sin(a.end)} Z`
+        return (
+          <path
+            key={a.label}
+            d={d}
+            fill={`var(${a.color})`}
+            stroke="var(--color-surface)"
+            strokeWidth={0.04}
+          />
+        )
+      })}
+    </svg>
   )
 }
 
@@ -446,7 +624,7 @@ function SalesTable({ data }: { data: TopSale[] }) {
         </TableHeader>
         <TableBody>
           {data.map((row) => (
-            <TableRow key={row.code} className="border-(--color-border) hover:bg-(--color-surface-raised)/50">
+            <TableRow key={row.item} className="border-(--color-border) hover:bg-(--color-surface-raised)/50">
               <TableCell className="text-[14px] font-medium text-(--color-text-primary) font-(family-name:--font-data)">
                 {row.item}
               </TableCell>
@@ -482,65 +660,56 @@ export default function InteligenciaPage() {
         subtitle="Painel estratégico de performance de vendas de produtos e serviços"
       />
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <Segmented
-          options={[
-            { value: "produto", label: "Produtos" },
-            { value: "servico", label: "Serviços" },
-          ]}
-          value={segment}
-          onChange={setSegment}
-        />
-        <div className="flex items-center gap-3">
-          <Segmented
-            options={[
-              { value: "mensal", label: "Mensal" },
-              { value: "trimestral", label: "Trimestral" },
-            ]}
-            value={period}
-            onChange={setPeriod}
-          />
-          <Button
-            className="gap-2 bg-(--color-accent) text-white"
-            onClick={handleGenerateReport}
-            disabled={reportState === "loading"}
-          >
-            {reportState === "loading" ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
+      {/* Card do Relatório de IA: o cabeçalho concentra o seletor de período
+          (janela de dados do relatório e do ranking) e o botão de gerar, que
+          alterna para "Regenerar" quando já existe um relatório. */}
+      <SurfaceCard className="mb-6 overflow-hidden">
+        <div
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-4 bg-(--color-surface-raised) px-5 py-3.5",
+            reportState !== "idle" && "border-b border-(--color-border)"
+          )}
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/15 text-(--color-accent)">
               <Sparkles size={16} />
-            )}
-            {reportState === "loading" ? "Gerando..." : "Gerar Relatório de IA"}
-          </Button>
-        </div>
-      </div>
-
-      {reportState !== "idle" && (
-        <SurfaceCard className="mb-6 overflow-hidden">
-          <div className="flex items-center justify-between gap-4 border-b border-(--color-border) bg-(--color-surface-raised) px-5 py-3.5">
-            <div className="flex items-center gap-2.5">
-              <span className="flex size-8 items-center justify-center rounded-lg bg-primary/15 text-(--color-accent)">
-                <Sparkles size={16} />
-              </span>
-              <div>
-                <CardTitle>Relatório de IA</CardTitle>
-                <p className="text-[11px] text-(--color-text-secondary)">
-                  Análise gerada automaticamente a partir dos dados do período
-                </p>
-              </div>
+            </span>
+            <div>
+              <CardTitle>Relatório de IA</CardTitle>
+              <p className="text-[11px] text-(--color-text-secondary)">
+                Análise gerada automaticamente a partir dos dados do período{" "}
+                {period === "mensal" ? "mensal" : "trimestral"}
+              </p>
             </div>
-            <div className="flex items-center gap-2">
-              {reportState === "ready" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 text-(--color-text-secondary) border-(--color-border)"
-                  onClick={handleGenerateReport}
-                >
-                  <RefreshCw size={13} />
-                  Regenerar
-                </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Segmented
+              options={[
+                { value: "mensal", label: "Mensal" },
+                { value: "trimestral", label: "Trimestral" },
+              ]}
+              value={period}
+              onChange={setPeriod}
+            />
+            <Button
+              className="gap-2 bg-(--color-accent) text-white"
+              onClick={handleGenerateReport}
+              disabled={reportState === "loading"}
+            >
+              {reportState === "loading" ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : reportState === "ready" ? (
+                <RefreshCw size={16} />
+              ) : (
+                <Sparkles size={16} />
               )}
+              {reportState === "loading"
+                ? "Gerando..."
+                : reportState === "ready"
+                  ? "Regenerar"
+                  : "Gerar Relatório de IA"}
+            </Button>
+            {reportState !== "idle" && (
               <button
                 onClick={() => setReportState("idle")}
                 className="flex items-center justify-center rounded p-1 text-(--color-text-secondary) hover:bg-(--color-surface) hover:text-(--color-text-primary) transition-colors"
@@ -548,9 +717,11 @@ export default function InteligenciaPage() {
               >
                 <X size={16} />
               </button>
-            </div>
+            )}
           </div>
+        </div>
 
+        {reportState !== "idle" && (
           <div className="p-5">
             {reportState === "loading" ? (
               <div className="flex flex-col gap-3">
@@ -566,7 +737,7 @@ export default function InteligenciaPage() {
               </div>
             ) : (
               <div className="flex max-w-3xl flex-col gap-5">
-                {REPORT.map((section) => (
+                {REPORT[period].map((section) => (
                   <div key={section.title}>
                     <h3 className="mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-(--color-text-primary)">
                       <section.icon size={14} className={section.iconClass} />
@@ -588,34 +759,76 @@ export default function InteligenciaPage() {
                   </div>
                 ))}
                 <p className="border-t border-(--color-border) pt-3 text-[11px] text-(--color-text-secondary)">
-                  Relatório gerado automaticamente com base nos dados do mês atual. As recomendações são sugestões e devem ser validadas antes da execução.
+                  Relatório gerado automaticamente com base nos dados do{" "}
+                  {period === "mensal" ? "mês atual" : "trimestre atual"}. As recomendações são sugestões e devem ser validadas antes da execução.
                 </p>
               </div>
             )}
           </div>
-        </SurfaceCard>
-      )}
+        )}
+      </SurfaceCard>
 
-      {/* KPIs */}
+      {/* KPIs com evolução mensal (padrão do Dashboard); Ordens em pizza por status. */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {KPIS.map((kpi) => (
-          <SurfaceCard key={kpi.label} className="p-5">
-            <div className="flex items-start justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.55px] text-(--color-text-secondary) font-(family-name:--font-data)">
-                {kpi.label}
-              </span>
-              <span className={cn("flex size-8 items-center justify-center rounded-lg", kpi.iconClass)}>
-                <kpi.icon size={16} />
-              </span>
+        <KpiLineCard
+          label="Faturamento do Mês"
+          value={formatCurrency(TOTAL_REVENUE)}
+          hint={`+${REVENUE_GROWTH}% vs mês anterior`}
+          hintClass="text-(--color-success)"
+          icon={DollarSign}
+          iconClass="bg-(--color-success)/15 text-(--color-success)"
+          points={kpiPoints(REVENUE_SERIES, (v) => formatCurrency(v))}
+        />
+        <KpiLineCard
+          label="Vendas Realizadas"
+          value={String(INITIAL_HISTORY.length)}
+          hint="vendas no período"
+          icon={ShoppingCart}
+          iconClass="bg-primary/15 text-(--color-accent)"
+          points={kpiPoints(SALES_SERIES, (v) => `${v} vendas`)}
+        />
+        <KpiLineCard
+          label="Estoque Crítico"
+          value={String(CRITICAL_STOCK)}
+          hint="produtos abaixo do mínimo ou esgotados"
+          hintClass="text-(--color-warning)"
+          icon={TriangleAlert}
+          iconClass="bg-(--color-warning)/15 text-(--color-warning)"
+          points={kpiPoints(CRITICAL_SERIES, (v) => `${v} itens`)}
+          lineColor="--color-danger"
+        />
+        <SurfaceCard className="flex flex-col p-5">
+          <div className="flex items-start justify-between">
+            <span className={KPI_LABEL}>Ordens de Serviço</span>
+            <span className="flex size-8 items-center justify-center rounded-lg bg-(--color-info)/15 text-(--color-info)">
+              <Wrench size={16} />
+            </span>
+          </div>
+          <p className={KPI_VALUE}>{BOARD_ORDERS.length}</p>
+          <p className="mt-2 mb-4 text-[12px] font-medium text-(--color-text-secondary)">
+            {OPEN_ORDERS} em aberto
+          </p>
+          <div className="flex flex-1 items-center gap-4">
+            <PieChart slices={ORDER_SLICES} />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              {ORDER_SLICES.map((s) => (
+                <div
+                  key={s.label}
+                  className="flex items-center gap-2 text-[11px] text-(--color-text-secondary)"
+                >
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: `var(${s.color})` }}
+                  />
+                  <span className="truncate">{s.label}</span>
+                  <span className="ml-auto font-semibold text-(--color-text-primary)">
+                    {s.value}
+                  </span>
+                </div>
+              ))}
             </div>
-            <p className="mt-4 text-[28px] font-semibold leading-none tracking-[-0.56px] text-(--color-text-primary) font-(family-name:--font-data)">
-              {kpi.value}
-            </p>
-            <p className={cn("mt-2 text-[12px] font-medium", kpi.hintClass ?? "text-(--color-text-secondary)")}>
-              {kpi.hint}
-            </p>
-          </SurfaceCard>
-        ))}
+          </div>
+        </SurfaceCard>
       </div>
 
       {/* Projeção de Faturamento + Sazonalidades */}
@@ -707,7 +920,7 @@ export default function InteligenciaPage() {
       </div>
 
       {/* Maiores / Menores Vendas */}
-      <div className="mt-4 flex items-center justify-between gap-4">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-[18px] font-semibold text-(--color-text-primary) font-(family-name:--font-ui)">
           Ranking de Vendas
         </h2>
@@ -725,19 +938,21 @@ export default function InteligenciaPage() {
         <SurfaceCard className="overflow-hidden">
           <div className="border-b border-(--color-border) bg-(--color-surface-raised) px-5 py-3.5">
             <CardTitle>
-              Maiores Vendas de {segment === "produto" ? "Produtos" : "Serviços"} no Mês
+              Maiores Vendas de {segment === "produto" ? "Produtos" : "Serviços"} no{" "}
+              {period === "mensal" ? "Mês" : "Trimestre"}
             </CardTitle>
           </div>
-          <SalesTable data={TOP_SALES[segment]} />
+          <SalesTable data={TOP_SALES[period][segment]} />
         </SurfaceCard>
 
         <SurfaceCard className="overflow-hidden">
           <div className="border-b border-(--color-border) bg-(--color-surface-raised) px-5 py-3.5">
             <CardTitle>
-              Menores Vendas de {segment === "produto" ? "Produtos" : "Serviços"} no Mês
+              Menores Vendas de {segment === "produto" ? "Produtos" : "Serviços"} no{" "}
+              {period === "mensal" ? "Mês" : "Trimestre"}
             </CardTitle>
           </div>
-          <SalesTable data={LOW_SALES[segment]} />
+          <SalesTable data={LOW_SALES[period][segment]} />
         </SurfaceCard>
       </div>
 

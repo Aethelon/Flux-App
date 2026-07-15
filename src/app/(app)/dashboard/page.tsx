@@ -1,31 +1,39 @@
 import Link from "next/link"
 import { TrendingUp, TriangleAlert, Sparkles, ArrowRight } from "lucide-react"
 import { PageHeader } from "@/components/shared/PageHeader"
+import { MiniLine } from "@/components/shared/MiniLine"
 import { formatCurrency } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { INITIAL_PRODUCTS } from "@/data/products"
-import { INITIAL_COLUMNS, INITIAL_ORDERS } from "@/data/orders"
+import { INITIAL_COLUMNS, INITIAL_ORDERS, CLOSED_COLUMN_IDS, visibleOrders } from "@/data/orders"
+import { INITIAL_HISTORY, revenueByType, REVENUE_TREND, TREND_LABELS } from "@/data/history"
 import { SEASONALITIES } from "@/data/insights"
 
-// Faturamento dos últimos meses (visão geral). Última barra = mês atual, destacada.
-// value = altura da barra (%); display = valor real mostrado no tooltip.
-const REVENUE_BARS = [
-  { label: "Jan", value: 62, display: formatCurrency(77500) },
-  { label: "Fev", value: 78, display: formatCurrency(97500) },
-  { label: "Mar", value: 70, display: formatCurrency(87500) },
-  { label: "Abr", value: 92, display: formatCurrency(114500) },
-  { label: "Mai", value: 85, display: formatCurrency(106000) },
-  { label: "Jun", value: 100, display: formatCurrency(124500), highlight: true },
-]
+// Total Faturamento = vendas da Frente de Caixa (produtos) + serviços,
+// derivado das compras registradas no Histórico (mesma fonte da tela de
+// Histórico). A série mensal é a soma das séries por tipo do Histórico, com
+// o último ponto (mês atual, destacado) igual ao total derivado.
+const REVENUE_BY_TYPE = revenueByType(INITIAL_HISTORY)
+const TOTAL_REVENUE = REVENUE_BY_TYPE.produto + REVENUE_BY_TYPE.servico
 
-// Pedidos concluídos por mês.
+const REVENUE_POINTS = [
+  ...REVENUE_TREND.produto.map((v, i) => v + REVENUE_TREND.servico[i]),
+  TOTAL_REVENUE,
+].map((value, i) => ({
+  label: TREND_LABELS[i],
+  value,
+  display: formatCurrency(value),
+  highlight: i === TREND_LABELS.length - 1,
+}))
+
+// Pedidos concluídos por mês (mesma janela da série de faturamento).
 const PRODUCTION_BARS = [
-  { label: "Jan", value: 55, display: "55 pedidos" },
-  { label: "Fev", value: 63, display: "63 pedidos" },
-  { label: "Mar", value: 71, display: "71 pedidos" },
-  { label: "Abr", value: 58, display: "58 pedidos" },
-  { label: "Mai", value: 82, display: "82 pedidos" },
-  { label: "Jun", value: 74, display: "74 pedidos", highlight: true },
+  { label: "Fev", value: 58, display: "14 pedidos" },
+  { label: "Mar", value: 75, display: "18 pedidos" },
+  { label: "Abr", value: 67, display: "16 pedidos" },
+  { label: "Mai", value: 88, display: "21 pedidos" },
+  { label: "Jun", value: 100, display: "24 pedidos" },
+  { label: "Jul", value: 54, display: "13 pedidos", highlight: true },
 ]
 
 const CARD = "rounded-xl border border-(--color-border) bg-(--color-surface) p-6"
@@ -80,6 +88,17 @@ export default function DashboardPage() {
     (p) => p.status === "Baixo estoque" || p.status === "Esgotado"
   )
 
+  // Mesmas ordens visíveis no board (concluídas antigas ficam só no Histórico).
+  const boardOrders = visibleOrders(INITIAL_ORDERS)
+  // Pedidos ativos derivados das mesmas ordens exibidas no Fluxo de Produção:
+  // tudo que não está numa coluna encerrada (concluído/cancelado) conta como
+  // ativo. "Em produção" = ativas que já saíram de Pendente.
+  const pendingOrders = boardOrders.filter((o) => o.columnId === "pendente").length
+  const activeOrders = boardOrders.filter(
+    (o) => !CLOSED_COLUMN_IDS.includes(o.columnId)
+  ).length
+  const inProductionOrders = activeOrders - pendingOrders
+
   return (
     <div>
       <PageHeader
@@ -94,11 +113,11 @@ export default function DashboardPage() {
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-1">
               <span className={CARD_LABEL}>Total Faturamento</span>
-              <span className={CARD_VALUE}>{formatCurrency(124500)}</span>
+              <span className={CARD_VALUE}>{formatCurrency(TOTAL_REVENUE)}</span>
             </div>
             <TrendingUp size={18} className="text-(--color-accent)" />
           </div>
-          <MiniBars data={REVENUE_BARS} />
+          <MiniLine data={REVENUE_POINTS} />
         </div>
 
         {/* Pedidos Ativos */}
@@ -106,7 +125,7 @@ export default function DashboardPage() {
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-1">
               <span className={CARD_LABEL}>Pedidos Ativos</span>
-              <span className={CARD_VALUE}>42</span>
+              <span className={CARD_VALUE}>{activeOrders}</span>
             </div>
             <span className="inline-flex items-center gap-2 rounded-full bg-border/50 px-2.5 py-1">
               <span className="size-1.5 rounded-full bg-(--color-accent)" />
@@ -117,8 +136,8 @@ export default function DashboardPage() {
           <MiniBars data={PRODUCTION_BARS} />
 
           <div className="flex items-center justify-between text-[14px] text-(--color-text-primary)">
-            <span>12 em preparação</span>
-            <span>30 pendentes</span>
+            <span>{inProductionOrders} em produção</span>
+            <span>{pendingOrders} pendentes</span>
           </div>
         </div>
 
@@ -178,14 +197,15 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          <div className="grid flex-1 grid-cols-2 gap-3 lg:grid-cols-4">
+          {/* Mesmo padrão do board de Ordens: colunas largas com rolagem horizontal. */}
+          <div className="flex flex-1 gap-3 overflow-x-auto pb-2">
             {INITIAL_COLUMNS.map((col) => {
-              const cards = INITIAL_ORDERS.filter((o) => o.columnId === col.id)
+              const cards = boardOrders.filter((o) => o.columnId === col.id)
               const done = col.id === "concluido"
               return (
                 <div
                   key={col.id}
-                  className="flex flex-col gap-3 rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3"
+                  className="flex min-w-56 flex-1 flex-col gap-3 rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">

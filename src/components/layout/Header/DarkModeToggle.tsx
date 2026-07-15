@@ -1,11 +1,11 @@
 "use client"
 
 import { Sun, Moon } from "lucide-react"
-import { useTheme } from "next-themes"
 import { useSyncExternalStore } from "react"
+import { useThemeTransition } from "@/lib/useThemeTransition"
 
 export function DarkModeToggle() {
-  const { resolvedTheme, setTheme } = useTheme()
+  const { resolvedTheme, setThemeWithTransition } = useThemeTransition()
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false)
 
   if (!mounted) {
@@ -14,7 +14,7 @@ export function DarkModeToggle() {
 
   return (
     <button
-      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+      onClick={() => setThemeWithTransition(resolvedTheme === "dark" ? "light" : "dark")}
       className="flex items-center justify-center size-12.5 rounded-xl
         text-(--color-text-secondary) hover:text-(--color-text-primary)
         hover:bg-(--color-surface-raised) transition-colors"

@@ -33,7 +33,8 @@ import {
   type Payment,
   type PaymentKind,
 } from "@/types/payment"
-import { INITIAL_PRODUCTS } from "@/data/products"
+import type { SaleInput } from "@/types/history"
+import { INITIAL_PRODUCTS, isService } from "@/data/products"
 import type { Product } from "@/types/product"
 
 // Catálogo vem da mesma fonte do Inventário. A frente de caixa vende itens
@@ -72,8 +73,10 @@ function ProductCard({
   onAdd: () => void
   onRemove: () => void
 }) {
-  const soldOut = product.stock <= 0
-  const maxed = qty >= product.stock
+  // Serviço não controla estoque: sempre disponível e sem limite de quantidade.
+  const service = isService(product.category)
+  const soldOut = !service && product.stock <= 0
+  const maxed = !service && qty >= product.stock
 
   return (
     <button
@@ -94,7 +97,7 @@ function ProductCard({
           {product.name}
         </span>
         <span className="text-[11px] text-(--color-text-secondary)">
-          {soldOut ? "Esgotado" : `${product.stock} em estoque`}
+          {service ? "Sob demanda" : soldOut ? "Esgotado" : `${product.stock} em estoque`}
         </span>
       </div>
 
@@ -153,7 +156,9 @@ export default function FrenteDeCaixaPage() {
   const [discountInput, setDiscountInput] = useState("")
 
   const [payments, setPayments] = useState<PaymentEntry[]>([])
-  const [orderNumber, setOrderNumber] = useState(12)
+  // Próximo número da sequência única de pedidos (o último registrado no
+  // Histórico é o Nº149). Com backend, o número virá do servidor.
+  const [orderNumber, setOrderNumber] = useState(150)
 
   const filteredCatalog = CATALOG.filter((p) => {
     if (category !== "Todos" && p.category !== category) return false
@@ -190,7 +195,7 @@ export default function FrenteDeCaixaPage() {
     if (!product) return
     setCart((prev) => {
       const current = prev[id] ?? 0
-      if (current >= product.stock) return prev
+      if (!isService(product.category) && current >= product.stock) return prev
       return { ...prev, [id]: current + 1 }
     })
   }
@@ -255,9 +260,24 @@ export default function FrenteDeCaixaPage() {
           }
         : {}),
     }))
-    const methodsLabel = resolved.map(describePayment).join(" + ")
+    // Corpo completo da venda (cliente, itens com tipo, desconto e pagamentos) —
+    // é o que futuramente será enviado ao backend (POST /vendas) e vira o
+    // registro correspondente no Histórico.
+    const sale: SaleInput = {
+      orderNumber,
+      clientName: client,
+      items: cartItems.map((i) => ({
+        name: i.name,
+        quantity: i.qty,
+        total: i.lineTotal,
+        type: i.category === "Serviços" ? "servico" : "produto",
+      })),
+      discount: discountValue,
+      payments: resolved,
+    }
+    const methodsLabel = sale.payments.map(describePayment).join(" + ")
     toast.success(
-      `Pedido Nº${orderNumber} finalizado — ${formatCurrency(total)} em ${methodsLabel}.`
+      `Pedido Nº${sale.orderNumber} finalizado${sale.clientName ? ` para ${sale.clientName}` : ""} — ${formatCurrency(total)} em ${methodsLabel}.`
     )
     setOrderNumber((n) => n + 1)
     clearOrder()
@@ -331,7 +351,9 @@ export default function FrenteDeCaixaPage() {
           <button
             type="button"
             onClick={clearOrder}
-            disabled={cartItems.length === 0}
+            disabled={
+              cartItems.length === 0 && payments.length === 0 && !discountInput && !client
+            }
             title="Limpar pedido"
             className="rounded-md p-1.5 text-(--color-danger)/70 transition-colors hover:bg-(--color-danger)/10 hover:text-(--color-danger) disabled:pointer-events-none disabled:opacity-40"
           >

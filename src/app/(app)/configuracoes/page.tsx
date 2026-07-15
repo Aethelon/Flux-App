@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState, useSyncExternalStore } from "react"
-import { useTheme } from "next-themes"
+import { useThemeTransition } from "@/lib/useThemeTransition"
 import { Plus, Pencil, Trash2, Upload, TriangleAlert, Check } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -38,29 +38,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useUserStore } from "@/store/userStore"
 import { useFontSizeStore, FONT_SIZE_SCALE, type FontSize } from "@/store/fontSizeStore"
+import { useCategoriesStore } from "@/store/categoriesStore"
+import { useUnitsStore } from "@/store/unitsStore"
 import type { Unit, Category } from "@/types/settings"
-
-const INITIAL_UNITS: Unit[] = [
-  { id: "1", name: "Unidade", abbreviation: "un" },
-  { id: "2", name: "Quilograma", abbreviation: "kg" },
-  { id: "3", name: "Metro", abbreviation: "m" },
-  { id: "4", name: "Metro Quadrado", abbreviation: "m²" },
-  { id: "5", name: "Litro", abbreviation: "l" },
-  { id: "6", name: "Caixa", abbreviation: "cx" },
-]
-
-const INITIAL_CATEGORIES: Category[] = [
-  { id: "1", name: "Matéria-Prima" },
-  { id: "2", name: "Produto Acabado" },
-  { id: "3", name: "Embalagem" },
-  { id: "4", name: "Serviços" },
-]
 
 export default function ConfiguracoesPage() {
   const [tab, setTab] = useState("unidades")
-
-  const [units, setUnits] = useState<Unit[]>(INITIAL_UNITS)
-  const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES)
 
   return (
     <div>
@@ -77,10 +60,10 @@ export default function ConfiguracoesPage() {
         </TabsList>
 
         <TabsContent value="unidades">
-          <UnitsPanel units={units} onChange={setUnits} />
+          <UnitsPanel />
         </TabsContent>
         <TabsContent value="categorias">
-          <CategoriesPanel categories={categories} onChange={setCategories} />
+          <CategoriesPanel />
         </TabsContent>
         <TabsContent value="preferencias">
           <PreferencesPanel />
@@ -165,13 +148,14 @@ function SettingsListRow({
   )
 }
 
-function UnitsPanel({
-  units,
-  onChange,
-}: {
-  units: Unit[]
-  onChange: (units: Unit[]) => void
-}) {
+// As unidades vivem num store compartilhado (persistido) — o Inventário
+// consome a mesma lista, então cadastrar aqui reflete lá.
+function UnitsPanel() {
+  const units = useUnitsStore((s) => s.units)
+  const addUnit = useUnitsStore((s) => s.addUnit)
+  const updateUnit = useUnitsStore((s) => s.updateUnit)
+  const removeUnit = useUnitsStore((s) => s.removeUnit)
+
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -195,21 +179,21 @@ function UnitsPanel({
   }
 
   function handleAdd() {
-    onChange([...units, { id: String(Date.now()), ...form }])
+    addUnit(form)
     setAddOpen(false)
     toast.success("Unidade adicionada com sucesso.")
   }
 
   function handleEdit() {
     if (!selected) return
-    onChange(units.map((u) => (u.id === selected.id ? { ...u, ...form } : u)))
+    updateUnit(selected.id, form)
     setEditOpen(false)
     toast.success("Unidade atualizada.")
   }
 
   function handleDelete() {
     if (!selected) return
-    onChange(units.filter((u) => u.id !== selected.id))
+    removeUnit(selected.id)
     setDeleteOpen(false)
     toast.success(`${selected.name} foi removida.`)
     setSelected(null)
@@ -328,13 +312,14 @@ function UnitFormFields({
   )
 }
 
-function CategoriesPanel({
-  categories,
-  onChange,
-}: {
-  categories: Category[]
-  onChange: (categories: Category[]) => void
-}) {
+// As categorias vivem num store compartilhado (persistido) — o Inventário
+// consome a mesma lista, então cadastrar aqui reflete lá.
+function CategoriesPanel() {
+  const categories = useCategoriesStore((s) => s.categories)
+  const addCategory = useCategoriesStore((s) => s.addCategory)
+  const updateCategory = useCategoriesStore((s) => s.updateCategory)
+  const removeCategory = useCategoriesStore((s) => s.removeCategory)
+
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -358,21 +343,21 @@ function CategoriesPanel({
   }
 
   function handleAdd() {
-    onChange([...categories, { id: String(Date.now()), name }])
+    addCategory(name)
     setAddOpen(false)
     toast.success("Categoria adicionada com sucesso.")
   }
 
   function handleEdit() {
     if (!selected) return
-    onChange(categories.map((c) => (c.id === selected.id ? { ...c, name } : c)))
+    updateCategory(selected.id, name)
     setEditOpen(false)
     toast.success("Categoria atualizada.")
   }
 
   function handleDelete() {
     if (!selected) return
-    onChange(categories.filter((c) => c.id !== selected.id))
+    removeCategory(selected.id)
     setDeleteOpen(false)
     toast.success(`${selected.name} foi removida.`)
     setSelected(null)
@@ -469,6 +454,7 @@ function CategoriesPanel({
 
 function PreferencesPanel() {
   const user = useUserStore((s) => s.user)
+  const setUser = useUserStore((s) => s.setUser)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [avatarPreview, setAvatarPreview] = useState<string | undefined>(user?.avatar)
@@ -485,6 +471,14 @@ function PreferencesPanel() {
   }
 
   function handleSaveProfile() {
+    if (!user) return
+    // Persiste no userStore — o header (menu do usuário) reflete na hora.
+    setUser({
+      ...user,
+      name: `${firstName} ${lastName}`.trim(),
+      email,
+      avatar: avatarPreview,
+    })
     toast.success("Perfil atualizado com sucesso.")
   }
 
@@ -646,7 +640,7 @@ const FONT_SIZE_OPTIONS: { value: FontSize; label: string }[] = [
 ]
 
 function GeneralPreferencesCard() {
-  const { resolvedTheme, setTheme } = useTheme()
+  const { resolvedTheme, setThemeWithTransition } = useThemeTransition()
   const fontSize = useFontSizeStore((s) => s.fontSize)
   const setFontSize = useFontSizeStore((s) => s.setFontSize)
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false)
@@ -674,13 +668,13 @@ function GeneralPreferencesCard() {
               label="Claro"
               theme="light"
               active={resolvedTheme === "light"}
-              onSelect={() => setTheme("light")}
+              onSelect={() => setThemeWithTransition("light")}
             />
             <ThemeOptionCard
               label="Escuro"
               theme="dark"
               active={resolvedTheme === "dark"}
-              onSelect={() => setTheme("dark")}
+              onSelect={() => setThemeWithTransition("dark")}
             />
           </div>
         )}

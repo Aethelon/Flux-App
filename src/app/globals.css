@@ -170,3 +170,11 @@
     font-family: var(--font-ui), sans-serif;
   }
 }
+
+/* Transição suave de tema: crossfade da View Transition disparada pelo
+   useThemeTransition ao alternar claro/escuro. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.35s;
+  animation-timing-function: ease-in-out;
+}

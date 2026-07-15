@@ -15,4 +15,5 @@ export interface Order {
   value: number
   priority: OrderPriority
   dueAt: string
+  completedAt?: string // data em que entrou em "Concluído" (ISO)
 }

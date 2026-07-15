@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
+import { createPortal } from "react-dom"
 import {
   DndContext,
   DragOverlay,
@@ -66,8 +67,9 @@ import {
 } from "@/components/ui/select"
 import { formatCurrency, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
+import { useFontSizeStore, FONT_SIZE_SCALE } from "@/store/fontSizeStore"
 import type { KanbanColumn, Order, OrderPriority } from "@/types/order"
-import { INITIAL_COLUMNS, INITIAL_ORDERS } from "@/data/orders"
+import { INITIAL_COLUMNS, INITIAL_ORDERS, visibleOrders } from "@/data/orders"
 
 const COLOR_OPTIONS = [
   { name: "Âmbar",    value: "--color-warning" },
@@ -120,7 +122,8 @@ const EMPTY_ORDER_FORM: OrderForm = {
 
 export default function OrdensPage() {
   const [columns, setColumns] = useState<KanbanColumn[]>(INITIAL_COLUMNS)
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS)
+  // Concluídas há mais de 2 dias ficam só no Histórico (arquivadas do board).
+  const [orders, setOrders] = useState<Order[]>(visibleOrders(INITIAL_ORDERS))
 
   const [viewMode, setViewMode] = useState<"kanban" | "lista">("kanban")
   const [statusFilter, setStatusFilter] = useState("todos")
@@ -147,6 +150,13 @@ export default function OrdensPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
+
+  // O DragOverlay usa position: fixed, e o transform do ContentScaler cria um
+  // containing block que deslocaria o overlay em relação ao cursor. Por isso
+  // ele é portalado para o body (fora do contêiner escalado), reaplicando a
+  // escala da fonte para o card manter o mesmo tamanho visual.
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false)
+  const fontScale = FONT_SIZE_SCALE[useFontSizeStore((s) => s.fontSize)]
 
   // Resolve the column an "over" target belongs to (target may be a column or a card).
   function resolveColumnId(overId: string, list: Order[]): string | null {
@@ -276,7 +286,7 @@ export default function OrdensPage() {
   }
 
   function handleDeleteColumn() {
-    if (!deletingColumn) return
+    if (!deletingColumn || deletingColumn.id === "concluido") return
     setOrders((prev) => prev.filter((o) => o.columnId !== deletingColumn.id))
     setColumns((prev) => prev.filter((c) => c.id !== deletingColumn.id))
     setDeleteColumnOpen(false)
@@ -496,19 +506,31 @@ export default function OrdensPage() {
             </div>
           </SortableContext>
 
-          <DragOverlay dropAnimation={{ duration: 200, easing: "cubic-bezier(0.18, 0.67, 0.6, 1.22)" }}>
-            {activeCard && <OrderCardOverlay order={activeCard} />}
-            {activeColumn && (
-              <div className="w-72 shrink-0 rounded-xl border border-(--color-border) bg-(--color-surface) p-3 shadow-xl">
-                <span
-                  className="inline-flex items-center rounded px-2 py-1 text-[13px] font-medium text-white"
-                  style={{ backgroundColor: `var(${activeColumn.color})` }}
+          {mounted &&
+            createPortal(
+              <DragOverlay dropAnimation={{ duration: 200, easing: "cubic-bezier(0.18, 0.67, 0.6, 1.22)" }}>
+                <div
+                  style={{
+                    transform: `scale(${fontScale})`,
+                    transformOrigin: "top left",
+                    width: `${100 / fontScale}%`,
+                  }}
                 >
-                  {activeColumn.label}
-                </span>
-              </div>
+                  {activeCard && <OrderCardOverlay order={activeCard} />}
+                  {activeColumn && (
+                    <div className="w-72 shrink-0 rounded-xl border border-(--color-border) bg-(--color-surface) p-3 shadow-xl">
+                      <span
+                        className="inline-flex items-center rounded px-2 py-1 text-[13px] font-medium text-white"
+                        style={{ backgroundColor: `var(${activeColumn.color})` }}
+                      >
+                        {activeColumn.label}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </DragOverlay>,
+              document.body
             )}
-          </DragOverlay>
         </DndContext>
       ) : (
         <DataTable
@@ -568,7 +590,9 @@ export default function OrdensPage() {
             </div>
           </div>
           <DialogFooter showCloseButton={false} className="sm:justify-between">
-            {columnModalMode === "edit" ? (
+            {/* A coluna "Concluído" não pode ser removida: é o gatilho do
+                arquivamento das ordens no Histórico. */}
+            {columnModalMode === "edit" && editingColumn?.id !== "concluido" ? (
               <Button
                 type="button"
                 variant="outline"
