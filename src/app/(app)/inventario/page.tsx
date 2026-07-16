@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { Download, Plus, Eye, Pencil, Trash2, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -124,7 +125,9 @@ export default function InventarioPage() {
     { value: "todas", label: "Todas" },
     ...categories.map((c) => ({ value: c.name, label: c.name })),
   ]
-  const [search, setSearch] = useState("")
+  // A busca global manda o produto escolhido em `?q=` para a tela abrir filtrada.
+  const searchParams = useSearchParams()
+  const [search, setSearch] = useState(searchParams.get("q") ?? "")
   const [categoryFilter, setCategoryFilter] = useState("todas")
   const [statusFilter, setStatusFilter] = useState("todos")
   const [page, setPage] = useState(1)

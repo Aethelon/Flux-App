@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { Download, Plus, UserPen, UserMinus, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -74,7 +75,9 @@ export default function ClientesPage() {
   const updateClient = useClientsStore((s) => s.updateClient)
   const removeClient = useClientsStore((s) => s.removeClient)
 
-  const [search, setSearch] = useState("")
+  // A busca global manda o cliente escolhido em `?q=` para a tela abrir filtrada.
+  const searchParams = useSearchParams()
+  const [search, setSearch] = useState(searchParams.get("q") ?? "")
   const [statusFilter, setStatusFilter] = useState("todos")
   const [page, setPage] = useState(1)
 
