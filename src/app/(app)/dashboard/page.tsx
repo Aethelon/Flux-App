@@ -2,6 +2,7 @@ import Link from "next/link"
 import { TrendingUp, TriangleAlert, Sparkles, ArrowRight } from "lucide-react"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { MiniLine } from "@/components/shared/MiniLine"
+import { CaixaPanel } from "@/components/dashboard/CaixaPanel"
 import { formatCurrency } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { INITIAL_PRODUCTS } from "@/data/products"
@@ -179,6 +180,11 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Caixa físico — abertura/fechamento e movimentações do turno */}
+      <div className="mt-6">
+        <CaixaPanel />
       </div>
 
       {/* Seção inferior: fluxo de produção + insights de IA */}

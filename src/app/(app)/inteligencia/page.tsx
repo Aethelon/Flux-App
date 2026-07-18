@@ -14,6 +14,8 @@ import {
   Loader2,
   PackagePlus,
   RefreshCw,
+  Wallet,
+  Coins,
   X,
   type LucideIcon,
 } from "lucide-react"
@@ -35,6 +37,11 @@ import { SEASONALITIES } from "@/data/insights"
 import { INITIAL_PRODUCTS } from "@/data/products"
 import { INITIAL_COLUMNS, INITIAL_ORDERS, CLOSED_COLUMN_IDS, visibleOrders } from "@/data/orders"
 import { INITIAL_HISTORY, revenueByType, REVENUE_TREND, TREND_LABELS } from "@/data/history"
+import {
+  useCaixaStore,
+  calcularValorEsperado,
+  calcularDiferenca,
+} from "@/store/caixaStore"
 
 type Segment = "produto" | "servico"
 type Period = "mensal" | "trimestral"
@@ -643,6 +650,137 @@ function SalesTable({ data }: { data: TopSale[] }) {
   )
 }
 
+// KPI simples de caixa (sem série mensal — os dados vêm de sessões avulsas).
+function CaixaKpiCard({
+  label,
+  value,
+  hint,
+  hintClass,
+  icon: Icon,
+  iconClass,
+}: {
+  label: string
+  value: string
+  hint: string
+  hintClass?: string
+  icon: LucideIcon
+  iconClass: string
+}) {
+  return (
+    <SurfaceCard className="flex flex-col p-5">
+      <div className="flex items-start justify-between">
+        <span className={KPI_LABEL}>{label}</span>
+        <span className={cn("flex size-8 items-center justify-center rounded-lg", iconClass)}>
+          <Icon size={16} />
+        </span>
+      </div>
+      <p className={KPI_VALUE}>{value}</p>
+      <p className={cn("mt-2 text-[12px] font-medium", hintClass ?? "text-(--color-text-secondary)")}>
+        {hint}
+      </p>
+    </SurfaceCard>
+  )
+}
+
+// Análise de Caixa: indicadores derivados das sessões do caixa físico. Ao
+// contrário do resto da tela, estes números vêm de dados de runtime (aberturas,
+// fechamentos, sangrias e suprimentos registrados no Dashboard), não de mocks.
+function CaixaAnalytics() {
+  const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
+  const historico = useCaixaStore((s) => s.historico)
+
+  const fechados = historico.length
+  const totalContado = historico.reduce((s, ss) => s + (ss.valorContado ?? 0), 0)
+  const totalEsperado = historico.reduce((s, ss) => s + calcularValorEsperado(ss), 0)
+  const divergencia = historico.reduce((s, ss) => s + calcularDiferenca(ss), 0)
+  const conferem = historico.filter((ss) => Math.abs(calcularDiferenca(ss)) < 0.005).length
+  const semDivergencia = Math.abs(divergencia) < 0.005
+
+  // Sangrias e suprimentos somam sessões fechadas + turno em aberto.
+  const movimentacoes = [
+    ...historico.flatMap((ss) => ss.movimentacoes),
+    ...(sessaoAtual?.movimentacoes ?? []),
+  ]
+  const suprimentos = movimentacoes
+    .filter((m) => m.tipo === "suprimento")
+    .reduce((s, m) => s + m.valor, 0)
+  const sangrias = movimentacoes
+    .filter((m) => m.tipo === "sangria")
+    .reduce((s, m) => s + m.valor, 0)
+
+  return (
+    <section className="mt-8">
+      <div className="mb-3 flex items-center gap-2">
+        <Wallet size={16} className="text-(--color-text-secondary)" />
+        <h2 className="text-[18px] font-semibold text-(--color-text-primary) font-(family-name:--font-ui)">
+          Análise de Caixa
+        </h2>
+      </div>
+
+      {/* Status do turno atual */}
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-3">
+        {sessaoAtual ? (
+          <>
+            <span className="flex items-center gap-2 text-[13px] font-semibold text-(--color-text-primary)">
+              <span className="size-2 rounded-full bg-(--color-success)" />
+              Caixa aberto
+            </span>
+            <span className="text-[12px] text-(--color-text-secondary)">
+              Abertura {formatCurrency(sessaoAtual.valorAbertura)} · Esperado{" "}
+              {formatCurrency(calcularValorEsperado(sessaoAtual))}
+            </span>
+          </>
+        ) : (
+          <span className="flex items-center gap-2 text-[13px] text-(--color-text-secondary)">
+            <span className="size-2 rounded-full bg-(--color-text-secondary)/50" />
+            Nenhum caixa aberto no momento
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <CaixaKpiCard
+          label="Caixas Fechados"
+          value={String(fechados)}
+          hint={`${conferem}/${fechados} conferem`}
+          icon={Wallet}
+          iconClass="bg-primary/15 text-(--color-accent)"
+        />
+        <CaixaKpiCard
+          label="Total Conferido"
+          value={formatCurrency(totalContado)}
+          hint={`Esperado ${formatCurrency(totalEsperado)}`}
+          icon={DollarSign}
+          iconClass="bg-(--color-success)/15 text-(--color-success)"
+        />
+        <CaixaKpiCard
+          label="Divergência de Caixa"
+          value={
+            semDivergencia
+              ? formatCurrency(0)
+              : `${divergencia < 0 ? "- " : "+ "}${formatCurrency(Math.abs(divergencia))}`
+          }
+          hint={semDivergencia ? "Sem divergência" : divergencia > 0 ? "Sobra acumulada" : "Falta acumulada"}
+          hintClass={semDivergencia ? "text-(--color-success)" : "text-(--color-warning)"}
+          icon={TriangleAlert}
+          iconClass={
+            semDivergencia
+              ? "bg-(--color-success)/15 text-(--color-success)"
+              : "bg-(--color-warning)/15 text-(--color-warning)"
+          }
+        />
+        <CaixaKpiCard
+          label="Suprimentos"
+          value={formatCurrency(suprimentos)}
+          hint={`Sangrias ${formatCurrency(sangrias)}`}
+          icon={Coins}
+          iconClass="bg-(--color-info)/15 text-(--color-info)"
+        />
+      </div>
+    </section>
+  )
+}
+
 export default function InteligenciaPage() {
   const [segment, setSegment] = useState<Segment>("produto")
   const [period, setPeriod] = useState<Period>("mensal")
@@ -830,6 +968,9 @@ export default function InteligenciaPage() {
           </div>
         </SurfaceCard>
       </div>
+
+      {/* Análise de Caixa — KPIs das sessões do caixa físico */}
+      <CaixaAnalytics />
 
       {/* Projeção de Faturamento + Sazonalidades */}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">

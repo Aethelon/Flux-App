@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Plus } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 import { useClientsStore } from "@/store/clientsStore"
 import { ClientFormDialog } from "./ClientFormDialog"
 
@@ -10,10 +11,14 @@ export function ClientCombobox({
   id,
   value,
   onChange,
+  // "up" abre o dropdown acima do campo — útil quando o combobox fica no rodapé
+  // de um container com rolagem, para não empurrar o conteúdo nem gerar scroll.
+  align = "down",
 }: {
   id?: string
   value: string
   onChange: (name: string) => void
+  align?: "down" | "up"
 }) {
   const clients = useClientsStore((s) => s.clients)
   const [open, setOpen] = useState(false)
@@ -37,7 +42,12 @@ export function ClientCombobox({
       />
 
       {open && (
-        <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-(--color-border) bg-popover p-1 shadow-md ring-1 ring-foreground/10">
+        <div
+          className={cn(
+            "absolute z-50 max-h-56 w-full overflow-y-auto rounded-lg border border-(--color-border) bg-popover p-1 shadow-md ring-1 ring-foreground/10",
+            align === "up" ? "bottom-full mb-1" : "top-full mt-1"
+          )}
+        >
           {filtered.map((c) => (
             <button
               key={c.id}
