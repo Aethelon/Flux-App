@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import { useCaixaStore, calcularValorEsperado } from "@/store/caixaStore"
 
 // Resumo do caixa físico no Dashboard — o módulo completo (abertura,
-// fechamento, sangria, suprimento e vendas em dinheiro) vive em /caixa.
+// fechamento, sangria, suprimento e vendas por método) vive em /caixa.
 export function CaixaResumoCard() {
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
   const aberto = sessaoAtual !== null

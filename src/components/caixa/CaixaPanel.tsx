@@ -619,8 +619,8 @@ function criarColunasHistorico(
   ]
 }
 
-// Módulo de caixa físico (abertura, fechamento, sangria, suprimento, vendas em
-// dinheiro do turno e histórico de turnos fechados). É o conteúdo principal da
+// Módulo de caixa (abertura, fechamento, sangria, suprimento, vendas por método
+// e histórico de turnos fechados). É o conteúdo principal da
 // tela /caixa; o Dashboard mostra só um resumo (CaixaResumoCard) com link pra cá.
 export function CaixaPanel() {
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
@@ -650,7 +650,7 @@ export function CaixaPanel() {
       .filter((m) => m.tipo === "sangria")
       .reduce((s, m) => s + m.valor, 0) ?? 0
 
-  // "Movimentações do turno" mostra tudo que afeta a gaveta desde a abertura:
+  // "Movimentações do turno" mostra tudo que compõe o caixa desde a abertura:
   // o próprio fundo de troco inicial (sintético, não é uma Movimentacao real)
   // seguido das movimentações de fato (mais recente primeiro). Como a abertura
   // é sempre o evento mais antigo do turno, ela entra no fim da lista.
@@ -675,7 +675,7 @@ export function CaixaPanel() {
         <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Caixa</h2>
       </div>
       <p className="-mt-3 text-[12px] text-(--color-text-secondary)">
-        Abertura, fechamento, sangria, suprimento e vendas em dinheiro do caixa físico.
+        Abertura, fechamento, sangria, suprimento e vendas por método.
       </p>
 
       {!sessaoAtual ? (
@@ -700,7 +700,7 @@ export function CaixaPanel() {
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <StatCard label="Valor de abertura" value={formatCurrency(sessaoAtual.valorAbertura)} />
-            <StatCard label="Vendas em dinheiro" value={formatCurrency(vendas)} tone="success" />
+            <StatCard label="Vendas" value={formatCurrency(vendas)} tone="success" />
             <StatCard label="Suprimentos" value={formatCurrency(suprimentos)} tone="success" />
             <StatCard label="Sangrias" value={formatCurrency(sangrias)} tone="danger" />
             <StatCard label="Valor esperado" value={formatCurrency(esperado)} />

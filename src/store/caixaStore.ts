@@ -26,12 +26,10 @@ function metodoFromPagamento(pagamento: Pick<Payment, "kind" | "cardType">): Met
 }
 
 // Regra de negócio: valor esperado = valor de abertura + suprimentos + vendas
-// em dinheiro − sangrias.
+// por todos os métodos − sangrias.
 //
-// A venda em dinheiro entra como uma Movimentacao do tipo "venda", registrada
-// pela Frente de Caixa no momento do checkout (registrarVenda) — é assim que
-// o valor esperado do caixa físico bate com o dinheiro que de fato deveria
-// estar na gaveta ao longo do turno.
+// Cada parcela da venda entra como uma Movimentacao do tipo "venda", registrada
+// pela Frente de Caixa no momento do checkout (registrarVenda).
 export function calcularValorEsperado(sessao: CaixaSessao): number {
   const entradas = sessao.movimentacoes
     .filter((m) => m.tipo === "suprimento" || m.tipo === "venda")
@@ -155,13 +153,25 @@ export const useCaixaStore = create<CaixaState>()(
         if (!sessao || valor <= 0) return
 
         const fallbackMotivo = motivo && motivo.trim() ? motivo : "Venda"
-        const pagamentosParaRegistrar =
+        const pagamentosSanitizados =
           pagamentos && pagamentos.length > 0
             ? pagamentos.map((pagamento) => ({
                 ...pagamento,
                 amount: Math.max(0, pagamento.amount),
               }))
             : [{ kind: "dinheiro" as const, amount: valor }]
+
+        let trocoRestante = Math.max(
+          0,
+          pagamentosSanitizados.reduce((total, pagamento) => total + pagamento.amount, 0) - valor
+        )
+        const pagamentosParaRegistrar = pagamentosSanitizados.map((pagamento) => {
+          if (pagamento.kind !== "dinheiro" || trocoRestante <= 0) return pagamento
+
+          const trocoDestePagamento = Math.min(pagamento.amount, trocoRestante)
+          trocoRestante -= trocoDestePagamento
+          return { ...pagamento, amount: pagamento.amount - trocoDestePagamento }
+        })
 
         let restante = valor
         const movimentacoes: Movimentacao[] = []

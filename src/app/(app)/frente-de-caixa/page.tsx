@@ -1,7 +1,6 @@
 "use client"
 
 import { Fragment, useEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
 import {
   Search,
   Minus,
@@ -314,7 +313,6 @@ function OrderStepper({
 }
 
 export default function FrenteDeCaixaPage() {
-  const router = useRouter()
   const [cart, setCart] = useState<Record<string, number>>({})
   const [orderCart, setOrderCart] = useState<string[]>([])
   const [search, setSearch] = useState("")
@@ -339,15 +337,18 @@ export default function FrenteDeCaixaPage() {
   // Controle dos modais de abrir/fechar caixa, acessíveis direto da Frente de Caixa.
   const [abrirCaixaOpen, setAbrirCaixaOpen] = useState(false)
   const [fecharCaixaOpen, setFecharCaixaOpen] = useState(false)
-    const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
+  const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
   // Próximo número da sequência única de pedidos. A sequência é persistida
   // no navegador para continuar crescente mesmo após recarregar a tela.
-  const [orderNumber, setOrderNumber] = useState(() => {
-    if (typeof window === "undefined") return 1
+  const [orderNumber, setOrderNumber] = useState(1)
+
+  useEffect(() => {
     const saved = window.localStorage.getItem("flux-order-number")
     const parsed = Number(saved)
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
-  })
+    if (!Number.isFinite(parsed) || parsed <= 0) return
+    const timer = window.setTimeout(() => setOrderNumber(parsed), 0)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   const caixaAberto = useCaixaStore((s) => s.sessaoAtual !== null)
   const registrarVenda = useCaixaStore((s) => s.registrarVenda)
@@ -357,12 +358,6 @@ export default function FrenteDeCaixaPage() {
     const timer = window.setTimeout(() => searchInputRef.current?.focus(), 50)
     return () => window.clearTimeout(timer)
   }, [])
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("flux-order-number", String(orderNumber))
-    }
-  }, [orderNumber])
 
   useEffect(() => {
     if (step === 2 && pendingMethod) {
@@ -425,13 +420,18 @@ export default function FrenteDeCaixaPage() {
       : Math.min(subtotal, parsedDiscount)
   const total = Math.max(0, subtotal - discountValue)
 
-  // Cada entrada carrega seu próprio valor; o pagamento fecha quando a soma das
-  // formas bate com o total.
+  // Cada entrada carrega seu próprio valor. Valor excedente só é válido quando
+  // pode ser devolvido como troco a partir do pagamento em dinheiro.
   const effectiveAmount = (entry: PaymentEntry) => parsePriceInput(entry.amount)
   const paidTotal = payments.reduce((s, e) => s + effectiveAmount(e), 0)
+  const cashPaid = payments
+    .filter((e) => e.methodKey === "dinheiro")
+    .reduce((s, e) => s + effectiveAmount(e), 0)
   const remaining = total - paidTotal
   const change = Math.max(0, paidTotal - total)
-  const fullyCovered = payments.length > 0 && paidTotal >= total - 0.005
+  const changeCoveredByCash = change < 0.005 || cashPaid >= change - 0.005
+  const fullyCovered =
+    payments.length > 0 && paidTotal >= total - 0.005 && changeCoveredByCash
 
   const canPay = caixaAberto && cartLines.length > 0
 
@@ -1138,14 +1138,21 @@ export default function FrenteDeCaixaPage() {
                   <div
                     className={cn(
                       "flex items-center justify-between rounded-lg px-3 py-2 text-[12px] font-medium",
-                      change > 0
+                      change > 0 && !changeCoveredByCash
+                        ? "bg-(--color-warning)/10 text-(--color-warning)"
+                        : change > 0
                         ? "bg-(--color-accent)/10 text-(--color-accent)"
                         : remaining > 0.005
                           ? "bg-(--color-warning)/10 text-(--color-warning)"
                           : "bg-(--color-success)/10 text-(--color-success)"
                     )}
                   >
-                    {change > 0 ? (
+                    {change > 0 && !changeCoveredByCash ? (
+                      <>
+                        <span>Troco sem cobertura em dinheiro</span>
+                        <span>{formatCurrency(change)}</span>
+                      </>
+                    ) : change > 0 ? (
                       <>
                         <span className="flex items-center gap-1.5">
                           <Check size={14} />

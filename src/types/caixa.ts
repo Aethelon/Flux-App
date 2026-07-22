@@ -1,7 +1,7 @@
 export type CaixaStatus = "aberto" | "fechado"
 
-// "venda" é gerada automaticamente pela Frente de Caixa quando uma venda tem
-// parcela em dinheiro — não passa pelo modal manual de movimentação, por isso
+// "venda" é gerada automaticamente pela Frente de Caixa para cada forma de
+// pagamento — não passa pelo modal manual de movimentação, por isso
 // fica separada de MovimentacaoManual (o que a Dialog de sangria/suprimento aceita).
 export type MovimentacaoTipo = "sangria" | "suprimento" | "venda"
 export type MovimentacaoManual = Exclude<MovimentacaoTipo, "venda">

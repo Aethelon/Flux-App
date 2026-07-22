@@ -6,7 +6,7 @@ export default function CaixaPage() {
     <div>
       <PageHeader
         title="Caixa"
-        subtitle="Abertura, fechamento, sangria, suprimento e vendas em dinheiro"
+        subtitle="Abertura, fechamento, sangria, suprimento e vendas por método"
       />
       <CaixaPanel />
     </div>
