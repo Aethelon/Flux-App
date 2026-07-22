@@ -264,7 +264,7 @@ function OrderStepper({
       {steps.map((s, i) => {
         const active = step === s.n
         const done = step > s.n
-        const clickable = s.n === 1 || canPay
+        const clickable = !active && (s.n === 1 || canPay)
         return (
           <Fragment key={s.n}>
             <button
@@ -431,7 +431,10 @@ export default function FrenteDeCaixaPage() {
   const change = Math.max(0, paidTotal - total)
   const changeCoveredByCash = change < 0.005 || cashPaid >= change - 0.005
   const fullyCovered =
-    payments.length > 0 && paidTotal >= total - 0.005 && changeCoveredByCash
+    pendingMethod === null &&
+    payments.length > 0 &&
+    paidTotal >= total - 0.005 &&
+    changeCoveredByCash
 
   const canPay = caixaAberto && cartLines.length > 0
 

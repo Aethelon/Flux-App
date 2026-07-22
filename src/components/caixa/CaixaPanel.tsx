@@ -227,6 +227,7 @@ function MovimentacaoDialog({
 }) {
   const operador = useOperadorLogado()
   const registrarMovimentacao = useCaixaStore((s) => s.registrarMovimentacao)
+  const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
   const [valor, setValor] = useState("")
   const [motivo, setMotivo] = useState("")
   const label = tipo === "sangria" ? "Sangria" : "Suprimento"
@@ -235,6 +236,13 @@ function MovimentacaoDialog({
     const parsed = parsePriceInput(valor)
     if (parsed <= 0) {
       toast.error("Informe um valor maior que zero.")
+      return
+    }
+    const dinheiroDisponivel = sessaoAtual
+      ? calcularEsperadoPorMetodo(sessaoAtual).dinheiro
+      : 0
+    if (tipo === "sangria" && parsed > dinheiroDisponivel + 0.005) {
+      toast.error(`A sangria não pode ultrapassar ${formatCurrency(dinheiroDisponivel)}.`)
       return
     }
     if (!motivo.trim()) {
@@ -414,15 +422,16 @@ export function FecharCaixaDialog({
   }
 
   function handleConfirm() {
-    const totalContado = Object.values(valores).reduce(
-      (soma, valor) => soma + parsePriceInput(valor),
-      0
-    )
-
-    if (totalContado <= 0) {
+    const valoresInformados = Object.values(valores)
+    if (!valoresInformados.some((valor) => /\d/.test(valor))) {
       toast.error("Informe ao menos um valor para fechar o caixa.")
       return
     }
+
+    const totalContado = valoresInformados.reduce(
+      (soma, valor) => soma + parsePriceInput(valor),
+      0
+    )
 
     const sistemaCalculado = calcularValorEsperado(sessaoAtual)
     const diferenca = totalContado - sistemaCalculado

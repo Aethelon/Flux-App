@@ -125,7 +125,11 @@ export const useCaixaStore = create<CaixaState>()(
 
       registrarMovimentacao: (tipo, valor, motivo, operador) => {
         const sessao = get().sessaoAtual
-        if (!sessao) return
+        if (!sessao || valor <= 0) return
+        if (
+          tipo === "sangria" &&
+          valor > calcularEsperadoPorMetodo(sessao).dinheiro + 0.005
+        ) return
         const movimentacao: Movimentacao = {
           id: gerarId(),
           sessaoId: sessao.id,
