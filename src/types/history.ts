@@ -30,4 +30,5 @@ export interface SaleInput {
   items: HistoryItem[]
   discount: number
   payments: Payment[]
+  change?: number
 }

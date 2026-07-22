@@ -8,6 +8,7 @@ import {
   Users,
   UserCog,
   Settings,
+  Wallet,
   type LucideIcon,
 } from "lucide-react"
 import { INITIAL_PRODUCTS } from "@/data/products"
@@ -60,6 +61,15 @@ const PAGE_ITEMS: SearchItem[] = [
     href: "/frente-de-caixa",
     icon: ShoppingCart,
     keywords: ["caixa", "pdv", "pos", "venda", "frente"],
+    group: "Páginas",
+  },
+  {
+    id: "pagina-caixa",
+    label: "Caixa",
+    description: "Abertura, fechamento e movimentações",
+    href: "/caixa",
+    icon: Wallet,
+    keywords: ["caixa", "sangria", "suprimento", "movimentação", "abertura", "fechamento", "turno"],
     group: "Páginas",
   },
   {

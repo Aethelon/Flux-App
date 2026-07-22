@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   Search,
@@ -14,6 +14,7 @@ import {
   X,
   Check,
   Lock,
+  Unlock,
   Wallet,
   ArrowLeft,
   ClipboardList,
@@ -38,6 +39,13 @@ import { INITIAL_ORDERS, CLOSED_COLUMN_IDS } from "@/data/orders"
 import type { Product } from "@/types/product"
 import type { Order } from "@/types/order"
 import { useCaixaStore } from "@/store/caixaStore"
+import { useUserStore } from "@/store/userStore"
+import {
+  AbrirCaixaDialog,
+  FecharCaixaDialog,
+  ResumoFechamentoDialog,
+  type ResumoFechamento,
+} from "@/components/caixa/CaixaPanel"
 
 // Catálogo vem da mesma fonte do Inventário. A frente de caixa vende itens
 // acabados e serviços: matéria-prima não vai ao balcão e itens inativos não
@@ -98,6 +106,7 @@ interface CartLine {
   lineTotal: number
   type: "produto" | "servico"
 }
+
 
 const INSTALLMENTS = Array.from({ length: 12 }, (_, i) => i + 1)
 
@@ -317,12 +326,50 @@ export default function FrenteDeCaixaPage() {
 
   const [step, setStep] = useState<1 | 2>(1)
   const [payments, setPayments] = useState<PaymentEntry[]>([])
-  const [activeEntryId, setActiveEntryId] = useState<string | null>(null)
-  // Próximo número da sequência única de pedidos (o último registrado no
-  // Histórico é o Nº149). Com backend, o número virá do servidor.
-  const [orderNumber, setOrderNumber] = useState(150)
+  // Forma de pagamento em configuração: nada aqui conta para o total pago até
+  // o usuário clicar em "Adicionar" — só então vira uma entrada em `payments`.
+  const [pendingMethod, setPendingMethod] = useState<MethodKey | null>(null)
+  const [pendingAmount, setPendingAmount] = useState("")
+  const [pendingInstallments, setPendingInstallments] = useState(1)
+  // Se estiver diferente de null, "Adicionar" edita essa entrada já
+  // existente em vez de criar uma nova.
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const paymentAmountInputRef = useRef<HTMLInputElement>(null)
+  // Controle dos modais de abrir/fechar caixa, acessíveis direto da Frente de Caixa.
+  const [abrirCaixaOpen, setAbrirCaixaOpen] = useState(false)
+  const [fecharCaixaOpen, setFecharCaixaOpen] = useState(false)
+    const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
+  // Próximo número da sequência única de pedidos. A sequência é persistida
+  // no navegador para continuar crescente mesmo após recarregar a tela.
+  const [orderNumber, setOrderNumber] = useState(() => {
+    if (typeof window === "undefined") return 1
+    const saved = window.localStorage.getItem("flux-order-number")
+    const parsed = Number(saved)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+  })
 
   const caixaAberto = useCaixaStore((s) => s.sessaoAtual !== null)
+  const registrarVenda = useCaixaStore((s) => s.registrarVenda)
+  const operador = useUserStore((s) => s.user?.name ?? "Operador")
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => searchInputRef.current?.focus(), 50)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("flux-order-number", String(orderNumber))
+    }
+  }, [orderNumber])
+
+  useEffect(() => {
+    if (step === 2 && pendingMethod) {
+      const timer = window.setTimeout(() => paymentAmountInputRef.current?.focus(), 50)
+      return () => window.clearTimeout(timer)
+    }
+  }, [step, pendingMethod])
 
   const showingOrders = category === ORDERS_CATEGORY
 
@@ -383,14 +430,25 @@ export default function FrenteDeCaixaPage() {
   const effectiveAmount = (entry: PaymentEntry) => parsePriceInput(entry.amount)
   const paidTotal = payments.reduce((s, e) => s + effectiveAmount(e), 0)
   const remaining = total - paidTotal
-  const fullyCovered = payments.length > 0 && Math.abs(remaining) < 0.005
+  const change = Math.max(0, paidTotal - total)
+  const fullyCovered = payments.length > 0 && paidTotal >= total - 0.005
+
   const canPay = caixaAberto && cartLines.length > 0
-  const activeEntry = payments.find((e) => e.id === activeEntryId) ?? null
+
+  // Descarta a forma de pagamento em configuração sem adicioná-la/salvá-la.
+  // Sem useCallback: o React Compiler memoiza automaticamente em tempo de
+  // build — envolver manualmente aqui só conflita com a análise dele.
+  function cancelPending() {
+    setPendingMethod(null)
+    setPendingAmount("")
+    setPendingInstallments(1)
+    setEditingEntryId(null)
+  }
 
   // Volta ao passo do pedido, descartando o pagamento em andamento.
   function backToOrder() {
     setPayments([])
-    setActiveEntryId(null)
+    cancelPending()
     setStep(1)
   }
 
@@ -410,6 +468,8 @@ export default function FrenteDeCaixaPage() {
       if (!isService(product.category) && current >= product.stock) return prev
       return { ...prev, [id]: current + 1 }
     })
+    setSearch("")
+    window.setTimeout(() => searchInputRef.current?.focus(), 0)
   }
 
   function removeOne(id: string) {
@@ -453,47 +513,77 @@ export default function FrenteDeCaixaPage() {
     })
   }
 
-  // Seleciona uma forma de pagamento. Se ela ainda não tem entrada, cria uma
-  // (com o restante a alocar, ou o total se for a primeira) e foca nela; se já
-  // existe, só devolve o foco do input único para ela.
+  // Seleciona uma forma de pagamento para configurar. Isso só prepara os
+  // campos (valor sugerido, parcelas) — nada é somado ao pedido até o
+  // usuário clicar em "Adicionar". Se a forma já tiver uma entrada
+  // adicionada, carrega os valores dela para edição.
   function selectMethod(key: MethodKey) {
+    const existing = payments.find((e) => e.methodKey === key)
+    if (existing) {
+      setEditingEntryId(existing.id)
+      setPendingMethod(key)
+      setPendingAmount(existing.amount)
+      setPendingInstallments(existing.installments ?? 1)
+      return
+    }
+
+    const paidSoFar = payments.reduce((s, e) => s + parsePriceInput(e.amount), 0)
+    const remaining = Math.max(0, total - paidSoFar)
+    const amount = payments.length === 0 ? total : remaining
+
+    setEditingEntryId(null)
+    setPendingMethod(key)
+    setPendingAmount(toAmountString(amount))
+    setPendingInstallments(1)
+  }
+
+  // Confirma a forma de pagamento em configuração: cria uma nova entrada, ou
+  // atualiza a que está sendo editada. É o único ponto onde uma forma de
+  // pagamento passa a contar para o total pago.
+  function addPendingEntry() {
+    if (!pendingMethod) return
+    if (parsePriceInput(pendingAmount) <= 0) return
+
     setPayments((prev) => {
-      const existing = prev.find((e) => e.methodKey === key)
-      if (existing) {
-        setActiveEntryId(existing.id)
-        return prev
+      if (editingEntryId) {
+        return prev.map((e) =>
+          e.id === editingEntryId
+            ? {
+                ...e,
+                amount: pendingAmount,
+                ...(pendingMethod === "cartao_credito"
+                  ? { installments: pendingInstallments }
+                  : {}),
+              }
+            : e
+        )
       }
-      const paidSoFar = prev.reduce((s, e) => s + parsePriceInput(e.amount), 0)
-      const amount = prev.length === 0 ? total : total - paidSoFar
-      const id = `${key}-${prev.length}`
+
+      const id = `${pendingMethod}-${prev.length}-${Date.now()}`
       const entry: PaymentEntry = {
         id,
-        methodKey: key,
-        amount: toAmountString(amount),
-        ...(key === "cartao_credito" ? { installments: 1 } : {}),
+        methodKey: pendingMethod,
+        amount: pendingAmount,
+        ...(pendingMethod === "cartao_credito"
+          ? { installments: pendingInstallments }
+          : {}),
       }
-      setActiveEntryId(id)
       return [...prev, entry]
     })
+
+    cancelPending()
   }
 
   function removeEntry(id: string) {
-    setPayments((prev) => {
-      const next = prev.filter((e) => e.id !== id)
-      setActiveEntryId((current) => (current === id ? (next[0]?.id ?? null) : current))
-      return next
-    })
-  }
-
-  function updateEntry(id: string, patch: Partial<PaymentEntry>) {
-    setPayments((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)))
+    setPayments((prev) => prev.filter((e) => e.id !== id))
+    if (editingEntryId === id) cancelPending()
   }
 
   function clearOrder() {
     setCart({})
     setOrderCart([])
     setPayments([])
-    setActiveEntryId(null)
+    cancelPending()
     setDiscountInput("")
     setClient("")
     setStep(1)
@@ -502,11 +592,12 @@ export default function FrenteDeCaixaPage() {
   function handleDiscountInput(value: string) {
     const clean = value.replace(/[^\d.,]/g, "")
     setDiscountInput(clean)
-    // O desconto vive no passo 2 e altera o total: zera a seleção de pagamento
-    // para o usuário realocar sobre o novo total (nada fica pré-selecionado).
+    // O desconto vive no passo 2 e altera o total: zera as formas de
+    // pagamento adicionadas para o usuário realocar sobre o novo total
+    // (nada fica pré-adicionado).
     if (step === 2) {
       setPayments([])
-      setActiveEntryId(null)
+      cancelPending()
     }
   }
 
@@ -514,7 +605,7 @@ export default function FrenteDeCaixaPage() {
     setDiscountMode(mode)
     if (step === 2) {
       setPayments([])
-      setActiveEntryId(null)
+      cancelPending()
     }
   }
 
@@ -524,7 +615,11 @@ export default function FrenteDeCaixaPage() {
       return
     }
     if (cartLines.length === 0) return
-    // Nenhuma forma de pagamento vem pré-selecionada: o usuário escolhe.
+
+    // Nenhuma forma de pagamento é pré-selecionada: o usuário escolhe e
+    // clica em "Adicionar" para cada uma.
+    setPayments([])
+    cancelPending()
     setStep(2)
   }
 
@@ -559,14 +654,41 @@ export default function FrenteDeCaixaPage() {
       })),
       discount: discountValue,
       payments: resolved,
+      change: change > 0 ? change : undefined,
     }
     const methodsLabel = sale.payments.map(describePayment).join(" + ")
+    const changeText = change > 0 ? ` · Troco ${formatCurrency(change)}` : ""
     toast.success(
-      `Pedido Nº${sale.orderNumber} finalizado${sale.clientName ? ` para ${sale.clientName}` : ""} — ${formatCurrency(total)} em ${methodsLabel}.`
+      `Pedido Nº${sale.orderNumber} finalizado${sale.clientName ? ` para ${sale.clientName}` : ""} — ${formatCurrency(total)} em ${methodsLabel}${changeText}.`
     )
-    setOrderNumber((n) => n + 1)
+    // Toda venda finalizada gera uma movimentação no caixa para o turno,
+    // independentemente do método de pagamento usado.
+    registrarVenda(total, sale.orderNumber, operador, methodsLabel, resolved)
+    const nextOrderNumber = orderNumber + 1
+    setOrderNumber(nextOrderNumber)
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("flux-order-number", String(nextOrderNumber))
+    }
     clearOrder()
   }
+
+  // Atalho de teclado F2: avança para pagamento no passo 1, ou finaliza a
+  // venda no passo 2 se o pagamento já estiver totalmente coberto.
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "F2") {
+        event.preventDefault()
+        if (step === 1) {
+          goToPayment()
+        } else if (fullyCovered) {
+          handleCheckout()
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  })
 
   return (
     <div className="-mb-6 flex h-[calc(100dvh-var(--header-height)-3.5rem)] flex-col gap-4">
@@ -579,12 +701,17 @@ export default function FrenteDeCaixaPage() {
                 Caixa fechado
               </span>
               <span className="text-[12px] text-(--color-text-secondary)">
-                Abra o caixa no Dashboard para poder finalizar vendas na Frente de Caixa.
+                Abra o caixa para poder finalizar vendas na Frente de Caixa.
               </span>
             </div>
           </div>
-          <Button size="sm" className="shrink-0" onClick={() => router.push("/dashboard")}>
-            Ir para o caixa
+          <Button
+            size="sm"
+            className="shrink-0 gap-1.5"
+            onClick={() => setAbrirCaixaOpen(true)}
+          >
+            <Unlock size={14} />
+            Abrir caixa
           </Button>
         </div>
       )}
@@ -632,6 +759,7 @@ export default function FrenteDeCaixaPage() {
                 className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--color-text-secondary)"
               />
               <Input
+                ref={searchInputRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={
@@ -695,17 +823,33 @@ export default function FrenteDeCaixaPage() {
             <h2 className="text-[18px] font-semibold text-(--color-text-primary)">
               Pedido Nº{orderNumber}
             </h2>
-            <button
-              type="button"
-              onClick={clearOrder}
-              disabled={
-                cartLines.length === 0 && payments.length === 0 && !discountInput && !client
-              }
-              title="Limpar pedido"
-              className="rounded-md p-1.5 text-(--color-danger)/70 transition-colors hover:bg-(--color-danger)/10 hover:text-(--color-danger) disabled:pointer-events-none disabled:opacity-40"
-            >
-              <Trash2 size={18} />
-            </button>
+            <div className="flex items-center gap-1">
+              {caixaAberto && (
+                <button
+                  type="button"
+                  onClick={() => setFecharCaixaOpen(true)}
+                  title="Fechar caixa"
+                  className="rounded-md p-1.5 text-(--color-text-secondary) transition-colors hover:bg-(--color-surface-raised) hover:text-(--color-text-primary)"
+                >
+                  <Lock size={16} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={clearOrder}
+                disabled={
+                  cartLines.length === 0 &&
+                  payments.length === 0 &&
+                  !pendingMethod &&
+                  !discountInput &&
+                  !client
+                }
+                title="Limpar pedido"
+                className="rounded-md p-1.5 text-(--color-danger)/70 transition-colors hover:bg-(--color-danger)/10 hover:text-(--color-danger) disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
           </div>
 
           <OrderStepper
@@ -714,14 +858,18 @@ export default function FrenteDeCaixaPage() {
             onStep={(s) => (s === 1 ? backToOrder() : goToPayment())}
           />
 
-          {/* Trilho horizontal dos 2 passos — desliza entre pedido e pagamento. */}
+          {/* Conteúdo do passo atual: pedido ou pagamento.
+              Cada painel ocupa 100% da largura (w-full shrink-0) e o
+              deslizamento usa translateX(-100%); evita cálculo de
+              porcentagem de largura (w-1/2 de um container w-[200%]), que
+              pode ser mal resolvido pelo navegador quando há elementos de
+              largura fixa dentro do painel (ex.: Select de parcelas). */}
           <div className="min-h-0 flex-1 overflow-hidden">
             <div
-              className="flex h-full w-[200%] transition-transform duration-300 ease-out"
-              style={{ transform: step === 2 ? "translateX(-50%)" : "translateX(0)" }}
+              className="flex h-full transition-transform duration-300 ease-out"
+              style={{ transform: step === 2 ? "translateX(-100%)" : "translateX(0%)" }}
             >
-              {/* Passo 1 — Itens, cliente e total */}
-              <div className="flex h-full w-1/2 flex-col gap-5 overflow-y-auto pr-2">
+              <div className="flex h-full w-full shrink-0 flex-col gap-5 overflow-y-auto pr-2">
                 <div className="flex flex-col gap-2">
                   <span className="text-[13px] font-semibold text-(--color-text-primary)">
                     Itens do pedido
@@ -770,7 +918,6 @@ export default function FrenteDeCaixaPage() {
                   )}
                 </div>
 
-                {/* Cliente e Total ancorados no rodapé */}
                 <div className="mt-auto flex flex-col gap-2">
                   <span className="text-[13px] font-semibold text-(--color-text-primary)">
                     Cliente
@@ -778,7 +925,6 @@ export default function FrenteDeCaixaPage() {
                   <ClientCombobox value={client} onChange={setClient} align="up" />
                 </div>
 
-                {/* Total (o detalhamento de desconto fica no passo de pagamento) */}
                 <div className="flex items-center justify-between border-t border-(--color-border) pt-3">
                   <span className="text-[15px] font-semibold text-(--color-text-primary)">
                     Total
@@ -789,9 +935,7 @@ export default function FrenteDeCaixaPage() {
                 </div>
               </div>
 
-              {/* Passo 2 — Desconto e formas de pagamento */}
-              <div className="flex h-full w-1/2 flex-col gap-3 overflow-y-auto pl-2">
-                {/* Desconto */}
+              <div className="flex h-full w-full shrink-0 flex-col gap-3 overflow-y-auto pl-2">
                 <div className="flex flex-col gap-2">
                   <span className="text-[13px] font-semibold text-(--color-text-primary)">
                     Desconto
@@ -861,7 +1005,7 @@ export default function FrenteDeCaixaPage() {
                 <div className="grid grid-cols-2 gap-2">
                   {METHODS.map(({ key, label, icon: Icon }) => {
                     const entry = payments.find((e) => e.methodKey === key)
-                    const isActive = entry?.id === activeEntryId
+                    const isPending = pendingMethod === key
                     return (
                       <button
                         key={key}
@@ -869,7 +1013,7 @@ export default function FrenteDeCaixaPage() {
                         onClick={() => selectMethod(key)}
                         className={cn(
                           "flex h-10 items-center justify-center gap-1.5 rounded-xl border text-[12px] font-medium transition-colors",
-                          isActive
+                          isPending
                             ? "border-(--color-accent) bg-primary/10 text-(--color-accent) ring-1 ring-(--color-accent)"
                             : entry
                               ? "border-primary/50 bg-primary/5 text-(--color-accent)"
@@ -878,50 +1022,54 @@ export default function FrenteDeCaixaPage() {
                       >
                         <Icon size={15} />
                         {label}
+                        {entry && !isPending && <Check size={12} className="ml-0.5" />}
                       </button>
                     )
                   })}
                 </div>
 
-                {activeEntry && (
+                {pendingMethod && (
                   <div className="flex flex-col gap-2 rounded-xl border border-primary/40 bg-primary/5 p-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[12px] font-semibold text-(--color-text-primary)">
-                        Valor — {METHOD_LABEL[activeEntry.methodKey]}
+                        Valor — {METHOD_LABEL[pendingMethod]}
                       </span>
                       <div className="relative w-32">
                         <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-(--color-text-secondary)">
                           R$
                         </span>
                         <Input
+                          ref={paymentAmountInputRef}
                           inputMode="decimal"
-                          value={activeEntry.amount}
+                          value={pendingAmount}
                           onChange={(e) =>
-                            updateEntry(activeEntry.id, {
-                              amount: e.target.value.replace(/[^\d.,]/g, ""),
-                            })
+                            setPendingAmount(e.target.value.replace(/[^\d.,]/g, ""))
                           }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault()
+                              addPendingEntry()
+                            }
+                          }}
                           placeholder="0,00"
                           className="h-8 pl-7 text-right"
                         />
                       </div>
                     </div>
 
-                    {activeEntry.methodKey === "cartao_credito" && (
+                    {pendingMethod === "cartao_credito" && (
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[12px] text-(--color-text-secondary)">Parcelas</span>
                         <Select
-                          value={String(activeEntry.installments ?? 1)}
-                          onValueChange={(v) =>
-                            updateEntry(activeEntry.id, { installments: Number(v) })
-                          }
+                          value={String(pendingInstallments)}
+                          onValueChange={(v) => setPendingInstallments(Number(v))}
                         >
                           <SelectTrigger className="h-8 w-40">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             {INSTALLMENTS.map((n) => {
-                              const base = effectiveAmount(activeEntry)
+                              const base = parsePriceInput(pendingAmount)
                               return (
                                 <SelectItem key={n} value={String(n)}>
                                   {n}x{base > 0 ? ` de ${formatCurrency(base / n)}` : ""}
@@ -933,20 +1081,38 @@ export default function FrenteDeCaixaPage() {
                         </Select>
                       </div>
                     )}
+
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={cancelPending}
+                        className="h-8 flex-1 rounded-lg text-[12px]"
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={addPendingEntry}
+                        disabled={parsePriceInput(pendingAmount) <= 0}
+                        className="h-8 flex-1 rounded-lg bg-(--color-accent) text-[12px] text-white"
+                      >
+                        {editingEntryId ? "Salvar" : "Adicionar"}
+                      </Button>
+                    </div>
                   </div>
                 )}
 
-                {/* Chips das formas já adicionadas — só aparece quando há divisão. */}
-                {payments.length > 1 && (
+                {payments.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {payments.map((entry) => (
                       <button
                         key={entry.id}
                         type="button"
-                        onClick={() => setActiveEntryId(entry.id)}
+                        onClick={() => selectMethod(entry.methodKey)}
                         className={cn(
                           "flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors",
-                          entry.id === activeEntryId
+                          editingEntryId === entry.id
                             ? "border-(--color-accent) bg-primary/10 text-(--color-accent)"
                             : "border-(--color-border) text-(--color-text-secondary) hover:text-(--color-text-primary)"
                         )}
@@ -972,28 +1138,33 @@ export default function FrenteDeCaixaPage() {
                   <div
                     className={cn(
                       "flex items-center justify-between rounded-lg px-3 py-2 text-[12px] font-medium",
-                      Math.abs(remaining) < 0.005
-                        ? "bg-(--color-success)/10 text-(--color-success)"
-                        : "bg-(--color-warning)/10 text-(--color-warning)"
+                      change > 0
+                        ? "bg-(--color-accent)/10 text-(--color-accent)"
+                        : remaining > 0.005
+                          ? "bg-(--color-warning)/10 text-(--color-warning)"
+                          : "bg-(--color-success)/10 text-(--color-success)"
                     )}
                   >
-                    {Math.abs(remaining) < 0.005 ? (
+                    {change > 0 ? (
                       <>
                         <span className="flex items-center gap-1.5">
                           <Check size={14} />
-                          Pagamento completo
+                          Troco
                         </span>
-                        <span>{formatCurrency(total)}</span>
+                        <span>{formatCurrency(change)}</span>
                       </>
-                    ) : remaining > 0 ? (
+                    ) : remaining > 0.005 ? (
                       <>
                         <span>Falta alocar</span>
                         <span>{formatCurrency(remaining)}</span>
                       </>
                     ) : (
                       <>
-                        <span>Valor excede o total</span>
-                        <span>{formatCurrency(Math.abs(remaining))}</span>
+                        <span className="flex items-center gap-1.5">
+                          <Check size={14} />
+                          Pagamento completo
+                        </span>
+                        <span>{formatCurrency(total)}</span>
                       </>
                     )}
                   </div>
@@ -1008,12 +1179,18 @@ export default function FrenteDeCaixaPage() {
               onClick={goToPayment}
               disabled={!canPay}
               className="h-12 w-full shrink-0 justify-center rounded-2xl bg-(--color-accent) text-[15px] font-semibold text-white"
+              title="Atalho: F2"
             >
-              {!caixaAberto
-                ? "Abra o caixa para vender"
-                : cartLines.length === 0
-                  ? "Adicione itens ao pedido"
-                  : `Ir para pagamento — ${formatCurrency(total)}`}
+              <span className="flex items-center gap-2">
+                {!caixaAberto
+                  ? "Abra o caixa para vender"
+                  : cartLines.length === 0
+                    ? "Adicione itens ao pedido"
+                    : `Ir para pagamento — ${formatCurrency(total)}`}
+                <span className="inline-flex items-center rounded-full border border-white/30 bg-white/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
+                  F2
+                </span>
+              </span>
             </Button>
           ) : (
             <div className="flex shrink-0 items-center gap-2">
@@ -1029,14 +1206,31 @@ export default function FrenteDeCaixaPage() {
                 onClick={handleCheckout}
                 disabled={!fullyCovered}
                 className="h-12 flex-1 justify-center gap-1.5 rounded-2xl bg-(--color-accent) text-[15px] font-semibold text-white"
+                title="Atalho: F2"
               >
                 <Wallet size={16} />
-                Finalizar — {formatCurrency(total)}
+                <span className="flex items-center gap-2">
+                  <span>Finalizar — {formatCurrency(total)}</span>
+                  <span className="inline-flex items-center rounded-full border border-white/30 bg-white/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
+                    F2
+                  </span>
+                </span>
               </Button>
             </div>
           )}
         </aside>
       </div>
+
+      <AbrirCaixaDialog open={abrirCaixaOpen} onOpenChange={setAbrirCaixaOpen} />
+      <FecharCaixaDialog
+        open={fecharCaixaOpen}
+        onOpenChange={setFecharCaixaOpen}
+        onFechamentoConfirmado={setResumoFechamento}
+      />
+      <ResumoFechamentoDialog
+        resumo={resumoFechamento}
+        onOpenChange={() => setResumoFechamento(null)}
+      />
     </div>
   )
 }

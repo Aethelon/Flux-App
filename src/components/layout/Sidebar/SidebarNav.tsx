@@ -7,6 +7,7 @@ import {
   History,
   Users,
   ShieldCheck,
+  Wallet,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { SidebarItem } from "./SidebarItem"
@@ -23,6 +24,7 @@ const SECTIONS = [
   {
     label: "Gestão",
     items: [
+      { href: "/caixa", label: "Caixa", icon: Wallet },
       { href: "/inteligencia", label: "Inteligência", icon: Sparkles },
       { href: "/inventario", label: "Inventário", icon: Archive },
       { href: "/historico", label: "Histórico", icon: History },
