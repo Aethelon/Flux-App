@@ -632,6 +632,7 @@ function criarColunasHistorico(
 // e histórico de turnos fechados). É o conteúdo principal da
 // tela /caixa; o Dashboard mostra só um resumo (CaixaResumoCard) com link pra cá.
 export function CaixaPanel() {
+  const isAdmin = useUserStore((s) => s.user?.role === "admin")
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
   const historico = useCaixaStore((s) => s.historico)
   const getMovimentacoesDaSessao = useCaixaStore((s) => s.getMovimentacoesDaSessao)
@@ -751,32 +752,34 @@ export function CaixaPanel() {
         </>
       )}
 
-      <div className="flex flex-col gap-3 rounded-2xl border border-(--color-border) bg-(--color-surface-raised) p-4">
-        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-(--color-text-primary)">
-          <History size={15} />
-          Histórico de caixas
-        </span>
-        <DataTable
-          columns={colunasHistorico}
-          data={historico.map((sessao) => {
-            const diff = calcularDiferenca(sessao)
-            const status: HistoricoCaixaRow["status"] = Math.abs(diff) < 0.005 ? "Confere" : diff > 0 ? "Sobra" : "Falta"
-            return {
-              id: sessao.id,
-              periodo: `${formatHora(sessao.abertoEm)} — ${sessao.fechadoEm ? formatHora(sessao.fechadoEm) : "—"}`,
-              operador: sessao.operadorAbertura,
-              esperado: calcularValorEsperado(sessao),
-              contado: sessao.valorContado ?? 0,
-              diferenca: diff,
-              status,
-              sessao,
-            }
-          })}
-          keyField="id"
-          emptyMessage="Nenhum caixa fechado até agora."
-          className="max-h-[400px] overflow-auto"
-        />
-      </div>
+      {isAdmin && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-(--color-border) bg-(--color-surface-raised) p-4">
+          <span className="flex items-center gap-1.5 text-[13px] font-semibold text-(--color-text-primary)">
+            <History size={15} />
+            Histórico de caixas
+          </span>
+          <DataTable
+            columns={colunasHistorico}
+            data={historico.map((sessao) => {
+              const diff = calcularDiferenca(sessao)
+              const status: HistoricoCaixaRow["status"] = Math.abs(diff) < 0.005 ? "Confere" : diff > 0 ? "Sobra" : "Falta"
+              return {
+                id: sessao.id,
+                periodo: `${formatHora(sessao.abertoEm)} — ${sessao.fechadoEm ? formatHora(sessao.fechadoEm) : "—"}`,
+                operador: sessao.operadorAbertura,
+                esperado: calcularValorEsperado(sessao),
+                contado: sessao.valorContado ?? 0,
+                diferenca: diff,
+                status,
+                sessao,
+              }
+            })}
+            keyField="id"
+            emptyMessage="Nenhum caixa fechado até agora."
+            className="max-h-[400px] overflow-auto"
+          />
+        </div>
+      )}
 
       <AbrirCaixaDialog open={abrirOpen} onOpenChange={setAbrirOpen} />
       {movDialog && (
@@ -797,7 +800,7 @@ export function CaixaPanel() {
         onOpenChange={() => setResumoFechamento(null)}
       />
 
-      <Dialog open={!!sessaoConferencia} onOpenChange={(open) => !open && setSessaoConferencia(null)}>
+      <Dialog open={isAdmin && !!sessaoConferencia} onOpenChange={(open) => !open && setSessaoConferencia(null)}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>Conferência do caixa</DialogTitle>

@@ -2,7 +2,7 @@ import type { AuthUser } from "@/types/auth"
 
 export type UserRole = AuthUser["role"]
 
-const ADMIN_ONLY_ROUTES = ["/dashboard", "/inteligencia", "/caixa", "/funcionarios"]
+const ADMIN_ONLY_ROUTES = ["/dashboard", "/inteligencia", "/funcionarios"]
 
 export function isUserRole(role: unknown): role is UserRole {
   return role === "admin" || role === "funcionario"
