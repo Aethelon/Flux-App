@@ -1,3 +1,5 @@
+"use client"
+
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -10,6 +12,8 @@ import {
   Wallet,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { canAccessRoute } from "@/lib/accessControl"
+import { useUserStore } from "@/store/userStore"
 import { SidebarItem } from "./SidebarItem"
 
 const SECTIONS = [
@@ -44,6 +48,8 @@ interface SidebarNavProps {
 }
 
 export function SidebarNav({ collapsed }: SidebarNavProps) {
+  const role = useUserStore((s) => s.user?.role ?? "funcionario")
+
   return (
     <nav className="flex-1 overflow-y-auto px-4 flex flex-col gap-1 scrollbar-none [&::-webkit-scrollbar]:hidden">
       {SECTIONS.map((section, i) => (
@@ -71,9 +77,11 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
             </div>
           </div>
           <div className="flex flex-col gap-1">
-            {section.items.map((item) => (
-              <SidebarItem key={item.href} collapsed={collapsed} {...item} />
-            ))}
+            {section.items
+              .filter((item) => canAccessRoute(role, item.href))
+              .map((item) => (
+                <SidebarItem key={item.href} collapsed={collapsed} {...item} />
+              ))}
           </div>
         </div>
       ))}

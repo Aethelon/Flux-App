@@ -10,6 +10,7 @@ import { ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react"
 import { useUserStore } from "@/store/userStore"
 import type { AuthUser } from "@/types/auth"
 import { cn } from "@/lib/utils"
+import { canAccessRoute, getDefaultRoute } from "@/lib/accessControl"
 
 const schema = z.object({
   email: z.string().email("E-mail inválido"),
@@ -50,8 +51,10 @@ function LoginForm() {
         toast.error(body.message ?? "Credenciais inválidas")
         return
       }
-      setUser(body.user as AuthUser)
-      router.push(params.get("next") ?? "/dashboard")
+      const user = body.user as AuthUser
+      const next = params.get("next")
+      setUser(user)
+      router.push(next && canAccessRoute(user.role, next) ? next : getDefaultRoute(user.role))
     } catch {
       toast.error("Algo deu errado. Tente novamente.")
     }

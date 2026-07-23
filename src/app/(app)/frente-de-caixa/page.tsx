@@ -352,7 +352,9 @@ export default function FrenteDeCaixaPage() {
 
   const caixaAberto = useCaixaStore((s) => s.sessaoAtual !== null)
   const registrarVenda = useCaixaStore((s) => s.registrarVenda)
-  const operador = useUserStore((s) => s.user?.name ?? "Operador")
+  const user = useUserStore((s) => s.user)
+  const operador = user?.name ?? "Operador"
+  const canManageCaixa = user?.role === "admin"
 
   useEffect(() => {
     const timer = window.setTimeout(() => searchInputRef.current?.focus(), 50)
@@ -704,18 +706,22 @@ export default function FrenteDeCaixaPage() {
                 Caixa fechado
               </span>
               <span className="text-[12px] text-(--color-text-secondary)">
-                Abra o caixa para poder finalizar vendas na Frente de Caixa.
+                {canManageCaixa
+                  ? "Abra o caixa para poder finalizar vendas na Frente de Caixa."
+                  : "Solicite a um administrador que abra o caixa para iniciar as vendas."}
               </span>
             </div>
           </div>
-          <Button
-            size="sm"
-            className="shrink-0 gap-1.5"
-            onClick={() => setAbrirCaixaOpen(true)}
-          >
-            <Unlock size={14} />
-            Abrir caixa
-          </Button>
+          {canManageCaixa && (
+            <Button
+              size="sm"
+              className="shrink-0 gap-1.5"
+              onClick={() => setAbrirCaixaOpen(true)}
+            >
+              <Unlock size={14} />
+              Abrir caixa
+            </Button>
+          )}
         </div>
       )}
 
@@ -827,7 +833,7 @@ export default function FrenteDeCaixaPage() {
               Pedido Nº{orderNumber}
             </h2>
             <div className="flex items-center gap-1">
-              {caixaAberto && (
+              {caixaAberto && canManageCaixa && (
                 <button
                   type="button"
                   onClick={() => setFecharCaixaOpen(true)}
@@ -1231,16 +1237,20 @@ export default function FrenteDeCaixaPage() {
         </aside>
       </div>
 
-      <AbrirCaixaDialog open={abrirCaixaOpen} onOpenChange={setAbrirCaixaOpen} />
-      <FecharCaixaDialog
-        open={fecharCaixaOpen}
-        onOpenChange={setFecharCaixaOpen}
-        onFechamentoConfirmado={setResumoFechamento}
-      />
-      <ResumoFechamentoDialog
-        resumo={resumoFechamento}
-        onOpenChange={() => setResumoFechamento(null)}
-      />
+      {canManageCaixa && (
+        <>
+          <AbrirCaixaDialog open={abrirCaixaOpen} onOpenChange={setAbrirCaixaOpen} />
+          <FecharCaixaDialog
+            open={fecharCaixaOpen}
+            onOpenChange={setFecharCaixaOpen}
+            onFechamentoConfirmado={setResumoFechamento}
+          />
+          <ResumoFechamentoDialog
+            resumo={resumoFechamento}
+            onOpenChange={() => setResumoFechamento(null)}
+          />
+        </>
+      )}
     </div>
   )
 }

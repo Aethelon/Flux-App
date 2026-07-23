@@ -11,19 +11,26 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { buildSearchIndex, searchItems } from "@/lib/searchIndex"
+import { canAccessRoute } from "@/lib/accessControl"
 import { useClientsStore } from "@/store/clientsStore"
+import { useUserStore } from "@/store/userStore"
 
 export function SearchBar() {
   const router = useRouter()
   const clients = useClientsStore((s) => s.clients)
+  const role = useUserStore((s) => s.user?.role ?? "funcionario")
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const groups = useMemo(
-    () => searchItems(buildSearchIndex(clients), query),
-    [clients, query]
+    () =>
+      searchItems(
+        buildSearchIndex(clients).filter((item) => canAccessRoute(role, item.href)),
+        query
+      ),
+    [clients, query, role]
   )
   const showResults = open && query.trim().length > 0
 

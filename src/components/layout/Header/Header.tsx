@@ -8,6 +8,7 @@ import { UserMenu } from "./UserMenu"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCaixaStore } from "@/store/caixaStore"
+import { useUserStore } from "@/store/userStore"
 import {
   AbrirCaixaDialog,
   FecharCaixaDialog,
@@ -15,7 +16,7 @@ import {
   type ResumoFechamento,
 } from "@/components/caixa/CaixaPanel"
 
-// Status do caixa físico, sempre visível no header. Abre o diálogo de
+// Status do caixa físico para administradores. Abre o diálogo de
 // abertura ou fechamento conforme o estado atual, e — igual ao módulo de
 // Caixa — mostra o relatório de conferência assim que o fechamento é
 // confirmado, para o operador ver o resumo antes de seguir.
@@ -57,11 +58,13 @@ function CaixaStatusButton() {
 }
 
 export function Header() {
+  const isAdmin = useUserStore((s) => s.user?.role === "admin")
+
   return (
     <header className="flex items-center justify-between h-18.5 px-10 bg-(--color-bg) shrink-0">
       <SearchBar />
       <div className="flex items-center gap-4 shrink-0">
-        <CaixaStatusButton />
+        {isAdmin && <CaixaStatusButton />}
         <DarkModeToggle />
         <UserMenu />
       </div>

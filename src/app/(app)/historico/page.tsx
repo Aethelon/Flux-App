@@ -10,6 +10,7 @@ import { formatCurrency } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { HistoryEntry } from "@/types/history"
 import { describePayment, type PaymentKind } from "@/types/payment"
+import { useUserStore } from "@/store/userStore"
 import {
   INITIAL_HISTORY,
   entryTotal,
@@ -42,6 +43,7 @@ function trendPoints(kind: "produto" | "servico", current: number) {
 }
 
 export default function HistoricoPage() {
+  const isAdmin = useUserStore((s) => s.user?.role === "admin")
   const [history] = useState<HistoryEntry[]>(INITIAL_HISTORY)
   const [tab, setTab] = useState("produto")
   const [page, setPage] = useState(1)
@@ -119,29 +121,31 @@ export default function HistoricoPage() {
         subtitle="Gerencie sua base de histórico de compras e vendas de serviços"
       />
 
-      <div className="grid grid-cols-2 gap-4 mb-8">
-        {(
-          [
-            { label: "Faturamento em Produtos", kind: "produto" },
-            { label: "Faturamento em Serviços", kind: "servico" },
-          ] as const
-        ).map(({ label, kind }) => (
-          <div
-            key={kind}
-            className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-6"
-          >
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.55px] text-(--color-text-secondary) font-(family-name:--font-data)">
-                {label}
-              </span>
-              <span className="text-[24px] font-semibold leading-9 tracking-[-0.48px] text-(--color-text-primary) font-(family-name:--font-data)">
-                {formatCurrency(revenue[kind])}
-              </span>
+      {isAdmin && (
+        <div className="grid grid-cols-2 gap-4 mb-8">
+          {(
+            [
+              { label: "Faturamento em Produtos", kind: "produto" },
+              { label: "Faturamento em Serviços", kind: "servico" },
+            ] as const
+          ).map(({ label, kind }) => (
+            <div
+              key={kind}
+              className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-6"
+            >
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.55px] text-(--color-text-secondary) font-(family-name:--font-data)">
+                  {label}
+                </span>
+                <span className="text-[24px] font-semibold leading-9 tracking-[-0.48px] text-(--color-text-primary) font-(family-name:--font-data)">
+                  {formatCurrency(revenue[kind])}
+                </span>
+              </div>
+              <MiniLine data={trendPoints(kind, revenue[kind])} />
             </div>
-            <MiniLine data={trendPoints(kind, revenue[kind])} />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-stretch gap-4">
         <div className="min-w-0 flex-1">

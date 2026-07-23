@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { jwtVerify } from "jose"
+import { canAccessRoute, getDefaultRoute, isUserRole } from "@/lib/accessControl"
 
 const PUBLIC_ROUTES = ["/login"]
 const COOKIE_NAME = process.env.JWT_COOKIE_NAME ?? "flux_token"
@@ -18,8 +19,9 @@ export async function middleware(request: NextRequest) {
   if (isPublic) {
     if (token) {
       try {
-        await jwtVerify(token, getSecret())
-        return NextResponse.redirect(new URL("/dashboard", request.url))
+        const { payload } = await jwtVerify(token, getSecret())
+        if (!isUserRole(payload.role)) throw new Error("Invalid role")
+        return NextResponse.redirect(new URL(getDefaultRoute(payload.role), request.url))
       } catch {
         // invalid token on public route — just continue
       }
@@ -34,7 +36,11 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    await jwtVerify(token, getSecret())
+    const { payload } = await jwtVerify(token, getSecret())
+    if (!isUserRole(payload.role)) throw new Error("Invalid role")
+    if (!canAccessRoute(payload.role, pathname)) {
+      return NextResponse.redirect(new URL(getDefaultRoute(payload.role), request.url))
+    }
     return NextResponse.next()
   } catch {
     const response = NextResponse.redirect(new URL(`/login?next=${pathname}`, request.url))
