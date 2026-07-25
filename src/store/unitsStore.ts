@@ -1,12 +1,14 @@
 "use client"
 
 import { create } from "zustand"
-import { api } from "@/lib/api"
+import { api, idempotencyHeaders } from "@/lib/api"
 import type { Unit } from "@/types/settings"
 
 export interface UnitInput {
   name: string
   abbreviation: string
+  allowsFractional: boolean
+  quantityScale: number
 }
 
 interface UnitsStore {
@@ -24,7 +26,8 @@ export const useUnitsStore = create<UnitsStore>((set, get) => ({
   },
   addUnit: async (input) => {
     const created = await api.post("units", {
-      json: { ...input, allowsFractional: false, quantityScale: 0 },
+      headers: idempotencyHeaders(),
+      json: input,
     }).json<Unit>()
     set((state) => ({ units: [...state.units, created] }))
   },
@@ -32,6 +35,7 @@ export const useUnitsStore = create<UnitsStore>((set, get) => ({
     const current = get().units.find((item) => item.id === id)
     if (!current) return
     const updated = await api.patch(`units/${id}`, {
+      headers: idempotencyHeaders(),
       json: { version: current.version, ...input },
     }).json<Unit>()
     set((state) => ({
@@ -42,6 +46,7 @@ export const useUnitsStore = create<UnitsStore>((set, get) => ({
     const current = get().units.find((item) => item.id === id)
     if (!current) return
     await api.delete(`units/${id}`, {
+      headers: idempotencyHeaders(),
       searchParams: { version: current.version },
     })
     set((state) => ({

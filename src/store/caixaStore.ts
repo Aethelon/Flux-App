@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import { HTTPError } from "ky"
-import { api, idempotencyHeaders } from "@/lib/api"
+import { api, fetchAllPages, idempotencyHeaders } from "@/lib/api"
 import type {
   CaixaSessao,
   MetodoPagamento,
@@ -168,10 +168,8 @@ export const useCaixaStore = create<CaixaState>((set, get) => ({
 
     if (!includeHistory) return
     try {
-      const response = await api.get("cash-sessions", {
-        searchParams: { pageSize: 100 },
-      }).json<{ data: ApiCashSession[] }>()
-      set({ historico: response.data.filter((session) => session.status === "closed").map(mapSession) })
+      const response = await fetchAllPages<ApiCashSession>("cash-sessions")
+      set({ historico: response.filter((session) => session.status === "closed").map(mapSession) })
     } catch (error) {
       if (!(error instanceof HTTPError) || error.response.status !== 403) throw error
       set({ historico: [] })

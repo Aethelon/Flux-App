@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Download, Plus, UserPen, UserMinus, TriangleAlert } from "lucide-react"
+import { Plus, UserPen, UserMinus, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
-import { api, idempotencyHeaders } from "@/lib/api"
+import { api, fetchAllPages, idempotencyHeaders } from "@/lib/api"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
 import { StatusBadge } from "@/components/shared/StatusBadge"
@@ -77,6 +77,10 @@ function getInitials(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
+function avatarColorIndex(value: string) {
+  return Array.from(value).reduce((total, character) => total + character.charCodeAt(0), 0)
+}
+
 function EmployeeAvatar({ name, colorIndex }: { name: string; colorIndex: number }) {
   const color = AVATAR_COLORS[colorIndex % AVATAR_COLORS.length]
   return (
@@ -118,12 +122,11 @@ export default function FuncionariosPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [form, setForm] = useState<EmployeeForm>(EMPTY_FORM)
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    void api.get("employees", {
-      searchParams: { pageSize: 100 },
-    }).json<{ data: ApiEmployee[] }>()
-      .then((response) => setEmployees(response.data.map(employee)))
+    void fetchAllPages<ApiEmployee>("employees")
+      .then((response) => setEmployees(response.map(employee)))
       .catch(() => toast.error("Não foi possível carregar os funcionários."))
   }, [])
 
@@ -159,55 +162,77 @@ export default function FuncionariosPage() {
   }
 
   async function handleAdd() {
-    const created = employee(await api.post("employees", {
-      headers: idempotencyHeaders(),
-      json: {
-        name: form.name,
-        email: form.email,
-        phone: form.phone || null,
-        role: form.role === "Administrador" ? "admin" : "funcionario",
-        status: form.status === "Ativo" ? "active" : "inactive",
-        password: form.password,
-      },
-    }).json<ApiEmployee>())
-    setEmployees((previous) => [created, ...previous])
-    setAddOpen(false)
-    toast.success("Funcionário adicionado com sucesso.")
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      const created = employee(await api.post("employees", {
+        headers: idempotencyHeaders(),
+        json: {
+          name: form.name,
+          email: form.email,
+          phone: form.phone || null,
+          role: form.role === "Administrador" ? "admin" : "funcionario",
+          status: form.status === "Ativo" ? "active" : "inactive",
+          password: form.password,
+        },
+      }).json<ApiEmployee>())
+      setEmployees((previous) => [created, ...previous])
+      setAddOpen(false)
+      toast.success("Funcionário adicionado com sucesso.")
+    } catch {
+      toast.error("Não foi possível adicionar o funcionário.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   async function handleEdit() {
-    if (!selectedEmployee) return
-    const updated = employee(await api.patch(`employees/${selectedEmployee.id}`, {
-      headers: idempotencyHeaders(),
-      json: {
-        version: selectedEmployee.version,
-        name: form.name,
-        email: form.email,
-        phone: form.phone || null,
-        role: form.role === "Administrador" ? "admin" : "funcionario",
-        status: form.status === "Ativo" ? "active" : "inactive",
-        ...(form.password ? { password: form.password } : {}),
-      },
-    }).json<ApiEmployee>())
-    setEmployees((prev) =>
-      prev.map((e) =>
-        e.id === selectedEmployee.id ? updated : e
+    if (!selectedEmployee || submitting) return
+    setSubmitting(true)
+    try {
+      const updated = employee(await api.patch(`employees/${selectedEmployee.id}`, {
+        headers: idempotencyHeaders(),
+        json: {
+          version: selectedEmployee.version,
+          name: form.name,
+          email: form.email,
+          phone: form.phone || null,
+          role: form.role === "Administrador" ? "admin" : "funcionario",
+          status: form.status === "Ativo" ? "active" : "inactive",
+          ...(form.password ? { password: form.password } : {}),
+        },
+      }).json<ApiEmployee>())
+      setEmployees((prev) =>
+        prev.map((e) =>
+          e.id === selectedEmployee.id ? updated : e
+        )
       )
-    )
-    setEditOpen(false)
-    toast.success("Funcionário atualizado.")
+      setEditOpen(false)
+      toast.success("Funcionário atualizado.")
+    } catch {
+      toast.error("Não foi possível atualizar o funcionário.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   async function handleDelete() {
-    if (!selectedEmployee) return
-    await api.delete(`employees/${selectedEmployee.id}`, {
-      headers: idempotencyHeaders(),
-      searchParams: { version: selectedEmployee.version },
-    })
-    setEmployees((prev) => prev.filter((e) => e.id !== selectedEmployee.id))
-    setDeleteOpen(false)
-    toast.success(`${selectedEmployee.name} foi removido.`)
-    setSelectedEmployee(null)
+    if (!selectedEmployee || submitting) return
+    setSubmitting(true)
+    try {
+      await api.delete(`employees/${selectedEmployee.id}`, {
+        headers: idempotencyHeaders(),
+        searchParams: { version: selectedEmployee.version },
+      })
+      setEmployees((prev) => prev.filter((e) => e.id !== selectedEmployee.id))
+      setDeleteOpen(false)
+      toast.success(`${selectedEmployee.name} foi removido.`)
+      setSelectedEmployee(null)
+    } catch {
+      toast.error("Não foi possível remover o funcionário.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const columns: Column<Employee>[] = [
@@ -216,7 +241,7 @@ export default function FuncionariosPage() {
       label: "Nome",
       render: (row) => (
         <div className="flex items-center gap-3">
-          <EmployeeAvatar name={row.name} colorIndex={parseInt(row.id) - 1} />
+          <EmployeeAvatar name={row.name} colorIndex={avatarColorIndex(row.id)} />
           <span className="font-medium">{row.name}</span>
         </div>
       ),
@@ -281,24 +306,14 @@ export default function FuncionariosPage() {
           </>
         }
         actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 text-(--color-text-secondary) border-(--color-border)"
-            >
-              <Download size={14} />
-              Exportar
-            </Button>
-            <Button
-              size="sm"
-              className="gap-2 bg-(--color-accent) text-white"
-              onClick={openAdd}
-            >
-              <Plus size={14} />
-              Novo Funcionário
-            </Button>
-          </>
+          <Button
+            size="sm"
+            className="gap-2 bg-(--color-accent) text-white"
+            onClick={openAdd}
+          >
+            <Plus size={14} />
+            Novo Funcionário
+          </Button>
         }
         pagination={{
           page,
@@ -321,7 +336,7 @@ export default function FuncionariosPage() {
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={!form.name || !form.email || form.password.length < 12}
+              disabled={!form.name || !form.email || form.password.length < 12 || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar
@@ -343,7 +358,7 @@ export default function FuncionariosPage() {
             </Button>
             <Button
               onClick={handleEdit}
-              disabled={!form.name || !form.email}
+              disabled={!form.name || !form.email || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar Alterações
@@ -361,7 +376,7 @@ export default function FuncionariosPage() {
             </AlertDialogMedia>
             <AlertDialogTitle>Remover funcionário?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedEmployee?.name} será removido permanentemente. Esta ação não pode ser desfeita.
+              {selectedEmployee?.name} será arquivado e perderá o acesso às operações ativas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -370,9 +385,10 @@ export default function FuncionariosPage() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
+              disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Remover
+              Arquivar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

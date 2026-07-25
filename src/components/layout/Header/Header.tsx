@@ -27,7 +27,7 @@ function CaixaStatusButton() {
   const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
 
   useEffect(() => {
-    void loadCash()
+    void loadCash().catch(() => undefined)
   }, [loadCash])
 
   return (

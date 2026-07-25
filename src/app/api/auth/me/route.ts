@@ -3,7 +3,9 @@ import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { getTokenFromCookies } from "@/lib/auth.server"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333"
+const API_URL = process.env.API_URL
+  ?? process.env.NEXT_PUBLIC_API_URL
+  ?? "http://localhost:3333"
 
 export async function GET() {
   const cookieStore = await cookies()

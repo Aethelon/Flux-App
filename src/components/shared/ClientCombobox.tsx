@@ -78,6 +78,7 @@ export function ClientCombobox({
       )}
 
       <ClientFormDialog
+        key={addOpen ? `open-${value}` : "closed"}
         open={addOpen}
         onOpenChange={setAddOpen}
         initialName={value}

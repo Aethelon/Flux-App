@@ -1,15 +1,16 @@
 "use client"
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import { useThemeTransition } from "@/lib/useThemeTransition"
-import { Plus, Pencil, Trash2, Upload, TriangleAlert, Check } from "lucide-react"
+import { Plus, Pencil, Trash2, TriangleAlert, Check } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+import { Switch } from "@/components/ui/switch"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import {
   Select,
@@ -155,7 +156,7 @@ function SettingsListRow({
   )
 }
 
-// As unidades vivem num store compartilhado (persistido) — o Inventário
+// As unidades vêm da API por um store compartilhado — o Inventário
 // consome a mesma lista, então cadastrar aqui reflete lá.
 function UnitsPanel() {
   const units = useUnitsStore((s) => s.units)
@@ -167,16 +168,32 @@ function UnitsPanel() {
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selected, setSelected] = useState<Unit | null>(null)
-  const [form, setForm] = useState({ name: "", abbreviation: "" })
+  const [form, setForm] = useState({
+    name: "",
+    abbreviation: "",
+    allowsFractional: false,
+    quantityScale: 0,
+  })
+  const [submitting, setSubmitting] = useState(false)
 
   function openAdd() {
-    setForm({ name: "", abbreviation: "" })
+    setForm({
+      name: "",
+      abbreviation: "",
+      allowsFractional: false,
+      quantityScale: 0,
+    })
     setAddOpen(true)
   }
 
   function openEdit(unit: Unit) {
     setSelected(unit)
-    setForm({ name: unit.name, abbreviation: unit.abbreviation })
+    setForm({
+      name: unit.name,
+      abbreviation: unit.abbreviation,
+      allowsFractional: unit.allowsFractional,
+      quantityScale: unit.quantityScale,
+    })
     setEditOpen(true)
   }
 
@@ -185,25 +202,47 @@ function UnitsPanel() {
     setDeleteOpen(true)
   }
 
-  function handleAdd() {
-    addUnit(form)
-    setAddOpen(false)
-    toast.success("Unidade adicionada com sucesso.")
+  async function handleAdd() {
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      await addUnit(form)
+      setAddOpen(false)
+      toast.success("Unidade adicionada com sucesso.")
+    } catch {
+      toast.error("Não foi possível adicionar a unidade.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  function handleEdit() {
-    if (!selected) return
-    updateUnit(selected.id, form)
-    setEditOpen(false)
-    toast.success("Unidade atualizada.")
+  async function handleEdit() {
+    if (!selected || submitting) return
+    setSubmitting(true)
+    try {
+      await updateUnit(selected.id, form)
+      setEditOpen(false)
+      toast.success("Unidade atualizada.")
+    } catch {
+      toast.error("Não foi possível atualizar a unidade.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  function handleDelete() {
-    if (!selected) return
-    removeUnit(selected.id)
-    setDeleteOpen(false)
-    toast.success(`${selected.name} foi removida.`)
-    setSelected(null)
+  async function handleDelete() {
+    if (!selected || submitting) return
+    setSubmitting(true)
+    try {
+      await removeUnit(selected.id)
+      setDeleteOpen(false)
+      toast.success(`${selected.name} foi removida.`)
+      setSelected(null)
+    } catch {
+      toast.error("Não foi possível remover a unidade.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -213,7 +252,11 @@ function UnitsPanel() {
           <SettingsListRow
             key={unit.id}
             primary={unit.name}
-            secondary={unit.abbreviation}
+            secondary={`${unit.abbreviation} · ${
+              unit.allowsFractional
+                ? `até ${unit.quantityScale} ${unit.quantityScale === 1 ? "casa decimal" : "casas decimais"}`
+                : "quantidades inteiras"
+            }`}
             onEdit={() => openEdit(unit)}
             onDelete={() => openDelete(unit)}
           />
@@ -232,7 +275,7 @@ function UnitsPanel() {
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={!form.name || !form.abbreviation}
+              disabled={!form.name || !form.abbreviation || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar
@@ -253,7 +296,7 @@ function UnitsPanel() {
             </Button>
             <Button
               onClick={handleEdit}
-              disabled={!form.name || !form.abbreviation}
+              disabled={!form.name || !form.abbreviation || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar Alterações
@@ -270,16 +313,17 @@ function UnitsPanel() {
             </AlertDialogMedia>
             <AlertDialogTitle>Remover unidade?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selected?.name} será removida permanentemente. Esta ação não pode ser desfeita.
+              {selected?.name} será arquivada e deixará de aparecer nas operações ativas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteOpen(false)}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
+              disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Remover
+              Arquivar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -292,8 +336,18 @@ function UnitFormFields({
   form,
   onChange,
 }: {
-  form: { name: string; abbreviation: string }
-  onChange: (f: { name: string; abbreviation: string }) => void
+  form: {
+    name: string
+    abbreviation: string
+    allowsFractional: boolean
+    quantityScale: number
+  }
+  onChange: (f: {
+    name: string
+    abbreviation: string
+    allowsFractional: boolean
+    quantityScale: number
+  }) => void
 }) {
   return (
     <div className="flex flex-col gap-4 py-2">
@@ -315,11 +369,46 @@ function UnitFormFields({
           onChange={(e) => onChange({ ...form, abbreviation: e.target.value })}
         />
       </div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="unit-fractional">Aceita quantidades fracionárias</Label>
+          <span className="text-[12px] text-(--color-text-secondary)">
+            Use para unidades como kg, m ou L.
+          </span>
+        </div>
+        <Switch
+          id="unit-fractional"
+          checked={form.allowsFractional}
+          onCheckedChange={(checked) => onChange({
+            ...form,
+            allowsFractional: checked,
+            quantityScale: checked ? Math.max(form.quantityScale, 3) : 0,
+          })}
+        />
+      </div>
+      {form.allowsFractional && (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="unit-scale">Casas decimais</Label>
+          <Select
+            value={String(form.quantityScale)}
+            onValueChange={(value) => onChange({ ...form, quantityScale: Number(value) })}
+          >
+            <SelectTrigger id="unit-scale" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">1 casa decimal</SelectItem>
+              <SelectItem value="2">2 casas decimais</SelectItem>
+              <SelectItem value="3">3 casas decimais</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
     </div>
   )
 }
 
-// As categorias vivem num store compartilhado (persistido) — o Inventário
+// As categorias vêm da API por um store compartilhado — o Inventário
 // consome a mesma lista, então cadastrar aqui reflete lá.
 function CategoriesPanel() {
   const categories = useCategoriesStore((s) => s.categories)
@@ -332,6 +421,7 @@ function CategoriesPanel() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selected, setSelected] = useState<Category | null>(null)
   const [name, setName] = useState("")
+  const [submitting, setSubmitting] = useState(false)
 
   function openAdd() {
     setName("")
@@ -349,25 +439,47 @@ function CategoriesPanel() {
     setDeleteOpen(true)
   }
 
-  function handleAdd() {
-    addCategory(name)
-    setAddOpen(false)
-    toast.success("Categoria adicionada com sucesso.")
+  async function handleAdd() {
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      await addCategory(name)
+      setAddOpen(false)
+      toast.success("Categoria adicionada com sucesso.")
+    } catch {
+      toast.error("Não foi possível adicionar a categoria.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  function handleEdit() {
-    if (!selected) return
-    updateCategory(selected.id, name)
-    setEditOpen(false)
-    toast.success("Categoria atualizada.")
+  async function handleEdit() {
+    if (!selected || submitting) return
+    setSubmitting(true)
+    try {
+      await updateCategory(selected.id, name)
+      setEditOpen(false)
+      toast.success("Categoria atualizada.")
+    } catch {
+      toast.error("Não foi possível atualizar a categoria.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  function handleDelete() {
-    if (!selected) return
-    removeCategory(selected.id)
-    setDeleteOpen(false)
-    toast.success(`${selected.name} foi removida.`)
-    setSelected(null)
+  async function handleDelete() {
+    if (!selected || submitting) return
+    setSubmitting(true)
+    try {
+      await removeCategory(selected.id)
+      setDeleteOpen(false)
+      toast.success(`${selected.name} foi removida.`)
+      setSelected(null)
+    } catch {
+      toast.error("Não foi possível remover a categoria.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -401,7 +513,7 @@ function CategoriesPanel() {
             <Button variant="outline" onClick={() => setAddOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleAdd} disabled={!name} className="bg-(--color-accent) text-white">
+            <Button onClick={handleAdd} disabled={!name || submitting} className="bg-(--color-accent) text-white">
               Salvar
             </Button>
           </DialogFooter>
@@ -426,7 +538,7 @@ function CategoriesPanel() {
             <Button variant="outline" onClick={() => setEditOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleEdit} disabled={!name} className="bg-(--color-accent) text-white">
+            <Button onClick={handleEdit} disabled={!name || submitting} className="bg-(--color-accent) text-white">
               Salvar Alterações
             </Button>
           </DialogFooter>
@@ -441,16 +553,17 @@ function CategoriesPanel() {
             </AlertDialogMedia>
             <AlertDialogTitle>Remover categoria?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selected?.name} será removida permanentemente. Esta ação não pode ser desfeita.
+              {selected?.name} será arquivada e deixará de aparecer nas operações ativas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteOpen(false)}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
+              disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Remover
+              Arquivar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -461,51 +574,6 @@ function CategoriesPanel() {
 
 function PreferencesPanel() {
   const user = useUserStore((s) => s.user)
-  const setUser = useUserStore((s) => s.setUser)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const [avatarPreview, setAvatarPreview] = useState<string | undefined>(user?.avatar)
-  const [firstName, setFirstName] = useState(user?.name?.split(" ")[0] ?? "")
-  const [lastName, setLastName] = useState(user?.name?.split(" ").slice(1).join(" ") ?? "")
-  const [email, setEmail] = useState(user?.email ?? "")
-  const [newPassword, setNewPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-
-  function handleAvatarSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setAvatarPreview(URL.createObjectURL(file))
-  }
-
-  function handleSaveProfile() {
-    if (!user) return
-    // Persiste no userStore — o header (menu do usuário) reflete na hora.
-    setUser({
-      ...user,
-      name: `${firstName} ${lastName}`.trim(),
-      email,
-      avatar: avatarPreview,
-    })
-    toast.success("Perfil atualizado com sucesso.")
-  }
-
-  function handleCancelPassword() {
-    setNewPassword("")
-    setConfirmPassword("")
-  }
-
-  function handleSavePassword() {
-    if (!newPassword || !confirmPassword) {
-      toast.error("Preencha os dois campos de senha.")
-      return
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error("As senhas não coincidem.")
-      return
-    }
-    toast.success("Senha atualizada com sucesso.")
-    handleCancelPassword()
-  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -516,123 +584,32 @@ function PreferencesPanel() {
           </h2>
         </div>
 
-        <div className="flex flex-col gap-6 p-5">
-          <div className="flex flex-col gap-2">
-            <Label>Foto de perfil</Label>
-            <div className="flex items-center gap-4">
-              <Avatar className="size-20">
-                <AvatarImage src={avatarPreview} alt={user?.name} />
-                <AvatarFallback className="bg-(--color-surface-raised) text-(--color-text-primary)">
-                  {user?.name?.slice(0, 2).toUpperCase() ?? "US"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex flex-col gap-1.5">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleAvatarSelect}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 justify-between"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload size={14} />
-                  Atualizar Imagem
-                </Button>
-                <Button
-                  size="sm"
-                  className="gap-1.5 bg-(--color-danger)/90 hover:bg-(--color-danger) text-white"
-                  onClick={() => setAvatarPreview(undefined)}
-                >
-                  <Trash2 size={14} />
-                  Deletar Imagem
-                </Button>
-              </div>
+        <div className="flex items-center gap-4 p-5">
+          <Avatar className="size-14">
+            <AvatarFallback className="bg-(--color-surface-raised) text-(--color-text-primary)">
+              {user?.name?.slice(0, 2).toUpperCase() ?? "US"}
+            </AvatarFallback>
+          </Avatar>
+          <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-[12px] text-(--color-text-secondary)">Nome</span>
+              <span className="text-[14px] text-(--color-text-primary)">{user?.name ?? "—"}</span>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-2 border-t border-(--color-border)">
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col gap-2">
-                <Label>Nome Completo</Label>
-                <div className="flex gap-3">
-                  <div className="flex flex-col gap-1 flex-1">
-                    <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-                      Nome
-                    </span>
-                    <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-                  </div>
-                  <div className="flex flex-col gap-1 flex-1">
-                    <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-                      Sobrenome
-                    </span>
-                    <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-col">
-                  <Label>Email de contato</Label>
-                  <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-                    Gerencie sua conta de acesso &amp; notificações
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-                    Email
-                  </span>
-                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-                </div>
-              </div>
-
-              <Button onClick={handleSaveProfile} className="bg-(--color-accent) text-white self-start">
-                Salvar Perfil
-              </Button>
+            <div className="flex flex-col gap-1">
+              <span className="text-[12px] text-(--color-text-secondary)">E-mail</span>
+              <span className="text-[14px] text-(--color-text-primary)">{user?.email ?? "—"}</span>
             </div>
-
-            <div className="flex flex-col gap-3 lg:pl-8 lg:border-l border-(--color-border)">
-              <div className="flex flex-col">
-                <Label>Alterar Senha</Label>
-                <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-                  Altere sua senha de acesso
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-                  Nova senha
-                </span>
-                <Input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-                  Repita sua nova senha
-                </span>
-                <Input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
-              </div>
-              <div className="flex gap-2 mt-10">
-                <Button onClick={handleSavePassword} className="bg-(--color-accent) text-white flex-1">
-                  Salvar
-                </Button>
-                <Button variant="outline" onClick={handleCancelPassword} className="flex-1">
-                  Cancelar
-                </Button>
-              </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[12px] text-(--color-text-secondary)">Cargo</span>
+              <span className="text-[14px] text-(--color-text-primary)">
+                {user?.role === "admin" ? "Administrador" : "Funcionário"}
+              </span>
             </div>
           </div>
         </div>
+        <p className="border-t border-(--color-border) px-5 py-3 text-[12px] text-(--color-text-secondary)">
+          Nome, e-mail e senha são gerenciados pelo administrador em Funcionários.
+        </p>
       </div>
 
       <GeneralPreferencesCard />

@@ -1,7 +1,7 @@
 "use client"
 
 import { create } from "zustand"
-import { api } from "@/lib/api"
+import { api, idempotencyHeaders } from "@/lib/api"
 import type { Category } from "@/types/settings"
 
 interface CategoriesStore {
@@ -19,6 +19,7 @@ export const useCategoriesStore = create<CategoriesStore>((set, get) => ({
   },
   addCategory: async (name) => {
     const created = await api.post("categories", {
+      headers: idempotencyHeaders(),
       json: { name },
     }).json<Category>()
     set((state) => ({ categories: [...state.categories, created] }))
@@ -27,6 +28,7 @@ export const useCategoriesStore = create<CategoriesStore>((set, get) => ({
     const current = get().categories.find((item) => item.id === id)
     if (!current) return
     const updated = await api.patch(`categories/${id}`, {
+      headers: idempotencyHeaders(),
       json: { version: current.version, name },
     }).json<Category>()
     set((state) => ({
@@ -37,6 +39,7 @@ export const useCategoriesStore = create<CategoriesStore>((set, get) => ({
     const current = get().categories.find((item) => item.id === id)
     if (!current) return
     await api.delete(`categories/${id}`, {
+      headers: idempotencyHeaders(),
       searchParams: { version: current.version },
     })
     set((state) => ({

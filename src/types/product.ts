@@ -8,12 +8,13 @@ export interface Product {
   categoryId: string
   unit: string
   unitId: string
+  quantityScale: number
   price: number
   cost: number | null
   stock: number
   minStock: number
   active: boolean
-  status: "Ativo" | "Baixo estoque" | "Esgotado"
+  status: "Ativo" | "Baixo estoque" | "Esgotado" | "Inativo"
   version: number
   lastUpdate: string
 }

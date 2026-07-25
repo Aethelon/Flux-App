@@ -4,7 +4,9 @@ import ky, { HTTPError } from "ky"
 const COOKIE_NAME = process.env.JWT_COOKIE_NAME ?? "flux_token"
 const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME ?? "flux_refresh_token"
 const REFRESH_COOKIE_MAX_AGE = Number(process.env.REFRESH_COOKIE_MAX_AGE ?? 2592000)
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333"
+const API_URL = process.env.API_URL
+  ?? process.env.NEXT_PUBLIC_API_URL
+  ?? "http://localhost:3333"
 
 export async function POST(request: NextRequest) {
   const body = await request.json()

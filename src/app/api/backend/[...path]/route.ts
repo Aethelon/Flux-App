@@ -14,6 +14,8 @@ interface AuthTokens {
   accessTokenExpiresIn: number
 }
 
+const refreshRequests = new Map<string, Promise<AuthTokens | null>>()
+
 function upstreamUrl(request: NextRequest, path: string[]): string {
   const url = new URL(`/api/v1/${path.map(encodeURIComponent).join("/")}`, API_URL)
   url.search = request.nextUrl.search
@@ -42,14 +44,28 @@ async function forward(
   })
 }
 
-async function refresh(refreshToken: string): Promise<AuthTokens | null> {
-  const response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+function refresh(refreshToken: string): Promise<AuthTokens | null> {
+  const pending = refreshRequests.get(refreshToken)
+  if (pending) return pending
+
+  const request = fetch(`${API_URL}/api/v1/auth/refresh`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ refreshToken }),
     cache: "no-store",
-  })
-  return response.ok ? response.json() as Promise<AuthTokens> : null
+  }).then(async (response) => {
+    if (!response.ok) return null
+    const tokens = await response.json() as Partial<AuthTokens>
+    return typeof tokens.accessToken === "string"
+      && typeof tokens.refreshToken === "string"
+      && typeof tokens.accessTokenExpiresIn === "number"
+      ? tokens as AuthTokens
+      : null
+  }).catch(() => null)
+
+  refreshRequests.set(refreshToken, request)
+  setTimeout(() => refreshRequests.delete(refreshToken), 5_000)
+  return request
 }
 
 async function proxy(
@@ -92,6 +108,9 @@ async function proxy(
       maxAge: REFRESH_COOKIE_MAX_AGE,
       path: "/",
     })
+  } else if (upstream.status === 401) {
+    response.cookies.delete(ACCESS_COOKIE_NAME)
+    response.cookies.delete(REFRESH_COOKIE_NAME)
   }
   return response
 }

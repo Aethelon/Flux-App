@@ -48,6 +48,7 @@ export function SearchBar() {
   // ⌘K foca a barra (antes abria um modal separado).
   useEffect(() => {
     void Promise.all([loadClients(), loadProducts(), loadOrders(), loadHistorySearch()])
+      .catch(() => undefined)
   }, [loadClients, loadHistorySearch, loadOrders, loadProducts])
 
   useEffect(() => {

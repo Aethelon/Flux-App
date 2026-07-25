@@ -30,20 +30,25 @@ export function ClientFormDialog({
   onCreated?: (client: Client) => void
 }) {
   const addClient = useClientsStore((s) => s.addClient)
-  const [form, setForm] = useState<ClientFormValues>(EMPTY_CLIENT_FORM)
-
-  // Reset the form to the prefilled name each time the dialog opens (no effect needed).
-  const [wasOpen, setWasOpen] = useState(open)
-  if (open !== wasOpen) {
-    setWasOpen(open)
-    if (open) setForm({ ...EMPTY_CLIENT_FORM, name: initialName })
-  }
+  const [form, setForm] = useState<ClientFormValues>({
+    ...EMPTY_CLIENT_FORM,
+    name: initialName,
+  })
+  const [submitting, setSubmitting] = useState(false)
 
   async function handleSave() {
-    const client = await addClient(form)
-    toast.success("Cliente adicionado com sucesso.")
-    onCreated?.(client)
-    onOpenChange(false)
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      const client = await addClient(form)
+      toast.success("Cliente adicionado com sucesso.")
+      onCreated?.(client)
+      onOpenChange(false)
+    } catch {
+      toast.error("Não foi possível adicionar o cliente.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -59,7 +64,7 @@ export function ClientFormDialog({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!form.name || !form.email}
+            disabled={!form.name || submitting}
             className="bg-(--color-accent) text-white"
           >
             Salvar

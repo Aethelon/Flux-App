@@ -1,7 +1,7 @@
 "use client"
 
 import { create } from "zustand"
-import { api } from "@/lib/api"
+import { fetchAllPages } from "@/lib/api"
 import type { Product } from "@/types/product"
 
 interface ApiProduct {
@@ -15,7 +15,7 @@ interface ApiProduct {
   priceCents: number
   costCents: number | null
   category: { id: string; name: string }
-  unit: { id: string; abbreviation: string }
+  unit: { id: string; abbreviation: string; quantityScale: number }
   version: number
   updatedAt: string
 }
@@ -28,7 +28,9 @@ interface ApiBalance {
 }
 
 function product(value: ApiProduct, balance?: ApiBalance): Product {
-  const status = value.type === "service" || balance?.status === "available"
+  const status = !value.active
+    ? "Inativo"
+    : value.type === "service" || balance?.status === "available"
     ? "Ativo"
     : balance?.status === "low_stock"
       ? "Baixo estoque"
@@ -43,6 +45,7 @@ function product(value: ApiProduct, balance?: ApiBalance): Product {
     categoryId: value.category.id,
     unit: value.unit.abbreviation,
     unitId: value.unit.id,
+    quantityScale: value.unit.quantityScale,
     price: value.priceCents / 100,
     cost: value.costCents === null ? null : value.costCents / 100,
     stock: balance?.onHand ?? 0,
@@ -65,12 +68,10 @@ export const useProductsStore = create<ProductsStore>((set) => ({
   products: [],
   loadProducts: async () => {
     const [catalog, inventory] = await Promise.all([
-      api.get("products", { searchParams: { pageSize: 100 } })
-        .json<{ data: ApiProduct[] }>(),
-      api.get("inventory/balances", { searchParams: { pageSize: 100 } })
-        .json<{ data: ApiBalance[] }>(),
+      fetchAllPages<ApiProduct>("products"),
+      fetchAllPages<ApiBalance>("inventory/balances"),
     ])
-    const balances = new Map(inventory.data.map((item) => [item.product.id, item]))
-    set({ products: catalog.data.map((item) => product(item, balances.get(item.id))) })
+    const balances = new Map(inventory.map((item) => [item.product.id, item]))
+    set({ products: catalog.map((item) => product(item, balances.get(item.id))) })
   },
 }))

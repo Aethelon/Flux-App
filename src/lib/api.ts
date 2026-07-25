@@ -12,3 +12,31 @@ export const api = ky.create({
 export function idempotencyHeaders(): Record<string, string> {
   return { "idempotency-key": crypto.randomUUID() }
 }
+
+interface ApiPage<T> {
+  data: T[]
+  page: number
+  pageSize: number
+  total: number
+}
+
+export async function fetchAllPages<T>(
+  path: string,
+  searchParams: Record<string, string | number | boolean> = {},
+): Promise<T[]> {
+  const data: T[] = []
+  let page = 1
+  let total = 0
+
+  do {
+    const response = await api.get(path, {
+      searchParams: { ...searchParams, page, pageSize: 100 },
+    }).json<ApiPage<T>>()
+    data.push(...response.data)
+    total = response.total
+    page += 1
+    if (response.data.length === 0) break
+  } while (data.length < total)
+
+  return data
+}

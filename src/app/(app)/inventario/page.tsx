@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Download, Plus, Eye, Pencil, Trash2, TriangleAlert } from "lucide-react"
+import { Plus, Eye, Pencil, Trash2, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
@@ -53,13 +53,17 @@ function StockCell({ product }: { product: Product }) {
     return <span className="text-[14px] text-(--color-text-secondary)">Sob demanda</span>
   }
   const dotClass =
-    product.status === "Esgotado"
+    product.status === "Inativo"
+      ? "bg-(--color-text-secondary)"
+      : product.status === "Esgotado"
       ? "bg-(--color-danger)"
       : product.status === "Baixo estoque"
         ? "bg-(--color-warning)"
         : "bg-(--color-success)"
   const textClass =
-    product.status === "Esgotado"
+    product.status === "Inativo"
+      ? "text-(--color-text-secondary)"
+      : product.status === "Esgotado"
       ? "text-(--color-danger)"
       : product.status === "Baixo estoque"
         ? "text-(--color-warning)"
@@ -80,6 +84,7 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "Ativo", label: "Ativo" },
   { value: "Baixo estoque", label: "Baixo estoque" },
   { value: "Esgotado", label: "Esgotado" },
+  { value: "Inativo", label: "Inativo" },
 ]
 
 const PER_PAGE = 10
@@ -110,6 +115,11 @@ const EMPTY_FORM: ProductForm = {
   cost: "",
   minStock: "0",
   active: true,
+}
+
+function matchesQuantityScale(value: number, scale: number) {
+  const factor = 10 ** scale
+  return Math.abs((value * factor) - Math.round(value * factor)) < 1e-9
 }
 
 export default function InventarioPage() {
@@ -144,6 +154,7 @@ export default function InventarioPage() {
   const [viewOpen, setViewOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductForm>(EMPTY_FORM)
+  const [submitting, setSubmitting] = useState(false)
 
   // Serviços ficam fora das métricas de estoque (não têm itens armazenados).
   const stockControlled = products.filter((p) => p.type !== "service")
@@ -199,99 +210,176 @@ export default function InventarioPage() {
   }
 
   async function handleAdd() {
+    if (submitting) return
     const service = form.type === "service"
     const stock = service ? 0 : Number(form.stock) || 0
     const minStock = service ? 0 : Number(form.minStock) || 0
     const category = categories.find((item) => item.name === form.category)
     const unit = units.find((item) => item.abbreviation === form.unit)
-    if (!category || !unit) return
-    const created = await api.post("products", {
-      json: {
-        barcode: form.barcode || null,
-        type: form.type,
-        name: form.name,
-        description: form.description,
-        active: form.active,
-        minimumStock: minStock,
-        priceCents: Math.round(parsePriceInput(form.price) * 100),
-        costCents: form.cost ? Math.round(parsePriceInput(form.cost) * 100) : null,
-        costSource: form.cost ? "manual" : null,
-        categoryId: category.id,
-        unitId: unit.id,
-      },
-    }).json<{ id: string }>()
-    if (stock > 0) {
-      await api.post("inventory/movements", {
+    if (!category || !unit) {
+      toast.error("Selecione uma categoria e uma unidade.")
+      return
+    }
+    if (stock < 0 || minStock < 0) {
+      toast.error("Os valores de estoque não podem ser negativos.")
+      return
+    }
+    if (!matchesQuantityScale(stock, unit.quantityScale)
+      || !matchesQuantityScale(minStock, unit.quantityScale)) {
+      toast.error(`A unidade selecionada aceita até ${unit.quantityScale} casas decimais.`)
+      return
+    }
+    if (!service && stock > 0 && !form.cost) {
+      toast.error("Informe o custo unitário para lançar o estoque inicial.")
+      return
+    }
+    setSubmitting(true)
+    let productCreated = false
+    try {
+      const created = await api.post("products", {
         headers: idempotencyHeaders(),
         json: {
-          productId: created.id,
-          type: "positive_adjustment",
-          quantity: stock,
-          unitCostCents: form.cost
-            ? Math.round(parsePriceInput(form.cost) * 100)
-            : undefined,
-          reason: "Initial inventory balance.",
+          barcode: form.barcode || null,
+          type: form.type,
+          name: form.name,
+          description: form.description,
+          active: form.active,
+          minimumStock: minStock,
+          priceCents: Math.round(parsePriceInput(form.price) * 100),
+          costCents: form.cost ? Math.round(parsePriceInput(form.cost) * 100) : null,
+          costSource: form.cost ? "manual" : null,
+          categoryId: category.id,
+          unitId: unit.id,
         },
-      })
+      }).json<{ id: string }>()
+      productCreated = true
+      if (stock > 0) {
+        await api.post("inventory/movements", {
+          headers: idempotencyHeaders(),
+          json: {
+            productId: created.id,
+            type: "positive_adjustment",
+            quantity: stock,
+            unitCostCents: form.cost
+              ? Math.round(parsePriceInput(form.cost) * 100)
+              : undefined,
+            reason: "Initial inventory balance.",
+          },
+        })
+      }
+      await loadProducts()
+      setAddOpen(false)
+      toast.success("Produto adicionado com sucesso.")
+    } catch {
+      if (productCreated) {
+        await loadProducts().catch(() => undefined)
+        setAddOpen(false)
+        toast.error(stock > 0
+          ? "Produto criado, mas não foi possível lançar o estoque inicial. Ajuste o saldo editando o produto."
+          : "Produto criado, mas não foi possível recarregar o inventário.")
+      } else {
+        toast.error("Não foi possível adicionar o produto.")
+      }
+    } finally {
+      setSubmitting(false)
     }
-    await loadProducts()
-    setAddOpen(false)
-    toast.success("Produto adicionado com sucesso.")
   }
 
   async function handleEdit() {
-    if (!selectedProduct) return
+    if (!selectedProduct || submitting) return
     const service = selectedProduct.type === "service"
     const stock = service ? 0 : Number(form.stock) || 0
     const minStock = service ? 0 : Number(form.minStock) || 0
     const category = categories.find((item) => item.name === form.category)
     const unit = units.find((item) => item.abbreviation === form.unit)
-    if (!category || !unit) return
-    await api.patch(`products/${selectedProduct.id}`, {
-      json: {
-        version: selectedProduct.version,
-        barcode: form.barcode || null,
-        name: form.name,
-        description: form.description,
-        active: form.active,
-        minimumStock: minStock,
-        priceCents: Math.round(parsePriceInput(form.price) * 100),
-        costCents: form.cost ? Math.round(parsePriceInput(form.cost) * 100) : null,
-        costSource: form.cost ? "manual" : null,
-        categoryId: category.id,
-        unitId: unit.id,
-        changeReason: "Updated through inventory screen.",
-      },
-    })
-    const difference = stock - selectedProduct.stock
-    if (!service && difference !== 0) {
-      await api.post("inventory/movements", {
+    if (!category || !unit) {
+      toast.error("Selecione uma categoria e uma unidade.")
+      return
+    }
+    if (stock < 0 || minStock < 0) {
+      toast.error("Os valores de estoque não podem ser negativos.")
+      return
+    }
+    if (!matchesQuantityScale(stock, unit.quantityScale)
+      || !matchesQuantityScale(minStock, unit.quantityScale)) {
+      toast.error(`A unidade selecionada aceita até ${unit.quantityScale} casas decimais.`)
+      return
+    }
+    if (!service && stock > selectedProduct.stock && !form.cost) {
+      toast.error("Informe o custo unitário para aumentar o saldo de estoque.")
+      return
+    }
+    setSubmitting(true)
+    let productUpdated = false
+    try {
+      await api.patch(`products/${selectedProduct.id}`, {
         headers: idempotencyHeaders(),
         json: {
-          productId: selectedProduct.id,
-          type: difference > 0 ? "positive_adjustment" : "negative_adjustment",
-          quantity: Math.abs(difference),
-          ...(difference > 0 && form.cost
-            ? { unitCostCents: Math.round(parsePriceInput(form.cost) * 100) }
-            : {}),
-          reason: "Inventory balance corrected through inventory screen.",
+          version: selectedProduct.version,
+          barcode: form.barcode || null,
+          name: form.name,
+          description: form.description,
+          active: form.active,
+          minimumStock: minStock,
+          priceCents: Math.round(parsePriceInput(form.price) * 100),
+          costCents: form.cost ? Math.round(parsePriceInput(form.cost) * 100) : null,
+          costSource: form.cost ? "manual" : null,
+          categoryId: category.id,
+          unitId: unit.id,
+          changeReason: "Updated through inventory screen.",
         },
       })
+      productUpdated = true
+      const difference = stock - selectedProduct.stock
+      if (!service && difference !== 0) {
+        await api.post("inventory/movements", {
+          headers: idempotencyHeaders(),
+          json: {
+            productId: selectedProduct.id,
+            type: difference > 0 ? "positive_adjustment" : "negative_adjustment",
+            quantity: Math.abs(difference),
+            ...(difference > 0 && form.cost
+              ? { unitCostCents: Math.round(parsePriceInput(form.cost) * 100) }
+              : {}),
+            reason: "Inventory balance corrected through inventory screen.",
+          },
+        })
+      }
+      await loadProducts()
+      setEditOpen(false)
+      toast.success("Produto atualizado.")
+    } catch {
+      if (productUpdated) {
+        await loadProducts().catch(() => undefined)
+        setEditOpen(false)
+        toast.error(stock !== selectedProduct.stock
+          ? "Os dados do produto foram atualizados, mas não foi possível ajustar o saldo de estoque."
+          : "Produto atualizado, mas não foi possível recarregar o inventário.")
+      } else {
+        toast.error("Não foi possível atualizar o produto.")
+      }
+    } finally {
+      setSubmitting(false)
     }
-    await loadProducts()
-    setEditOpen(false)
-    toast.success("Produto atualizado.")
   }
 
   async function handleDelete() {
-    if (!selectedProduct) return
-    await api.delete(`products/${selectedProduct.id}`, {
-      searchParams: { version: selectedProduct.version },
-    })
-    await loadProducts()
-    setDeleteOpen(false)
-    toast.success(`${selectedProduct.name} foi removido.`)
-    setSelectedProduct(null)
+    if (!selectedProduct || submitting) return
+    setSubmitting(true)
+    try {
+      await api.delete(`products/${selectedProduct.id}`, {
+        headers: idempotencyHeaders(),
+        searchParams: { version: selectedProduct.version },
+      })
+      await loadProducts()
+      setDeleteOpen(false)
+      toast.success(`${selectedProduct.name} foi removido.`)
+      setSelectedProduct(null)
+    } catch {
+      toast.error("Não foi possível remover o produto.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const columns: Column<Product>[] = [
@@ -299,7 +387,7 @@ export default function InventarioPage() {
       key: "name",
       label: "Produto",
       render: (row) => (
-        <div className={cn("flex flex-col", row.status === "Esgotado" && "opacity-60")}>
+        <div className={cn("flex flex-col", (row.status === "Esgotado" || row.status === "Inativo") && "opacity-60")}>
           <div className="flex items-center gap-2">
             <span className="font-medium">{row.name}</span>
             {!row.active && (
@@ -417,24 +505,14 @@ export default function InventarioPage() {
           </>
         }
         actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 text-(--color-text-secondary) border-(--color-border)"
-            >
-              <Download size={14} />
-              Exportar
-            </Button>
-            <Button
-              size="sm"
-              className="gap-2 bg-(--color-accent) text-white"
-              onClick={openAdd}
-            >
-              <Plus size={14} />
-              Adicionar Produto
-            </Button>
-          </>
+          <Button
+            size="sm"
+            className="gap-2 bg-(--color-accent) text-white"
+            onClick={openAdd}
+          >
+            <Plus size={14} />
+            Adicionar Produto
+          </Button>
         }
         pagination={{
           page,
@@ -457,7 +535,7 @@ export default function InventarioPage() {
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={!form.name}
+              disabled={!form.name || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar
@@ -498,7 +576,7 @@ export default function InventarioPage() {
               </Button>
               <Button
                 onClick={handleEdit}
-                disabled={!form.name}
+                disabled={!form.name || submitting}
                 className="bg-(--color-accent) text-white"
               >
                 Salvar Alterações
@@ -568,7 +646,7 @@ export default function InventarioPage() {
             </AlertDialogMedia>
             <AlertDialogTitle>Remover produto?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedProduct?.name} será removido permanentemente. Esta ação não pode ser desfeita.
+              {selectedProduct?.name} será arquivado e deixará de aparecer nas operações ativas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -577,9 +655,10 @@ export default function InventarioPage() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
+              disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Remover
+              Arquivar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -602,6 +681,10 @@ function ProductFormFields({
   typeLocked?: boolean
 }) {
   const service = form.type === "service"
+  const selectedUnit = units.find((unit) => unit.abbreviation === form.unit)
+  const quantityStep = selectedUnit?.allowsFractional
+    ? 10 ** -selectedUnit.quantityScale
+    : 1
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-col gap-1.5">
@@ -691,6 +774,8 @@ function ProductFormFields({
           <Input
             id="product-stock"
             type="number"
+            step={quantityStep}
+            min={0}
             placeholder={service ? "Sob demanda" : "Ex: 5"}
             value={service ? "" : form.stock}
             disabled={service}
@@ -724,6 +809,8 @@ function ProductFormFields({
           <Input
             id="product-min-stock"
             type="number"
+            step={quantityStep}
+            min={0}
             placeholder={service ? "—" : "0"}
             value={service ? "" : form.minStock}
             disabled={service}

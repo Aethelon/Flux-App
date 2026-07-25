@@ -43,7 +43,7 @@ export function ClientFormFields({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-email">E-mail</Label>
+        <Label htmlFor="client-email">E-mail (opcional)</Label>
         <Input
           id="client-email"
           type="email"
@@ -53,7 +53,7 @@ export function ClientFormFields({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-phone">Telefone</Label>
+        <Label htmlFor="client-phone">Telefone (opcional)</Label>
         <Input
           id="client-phone"
           placeholder="(00) 00000-0000"

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Download, Plus, UserPen, UserMinus, TriangleAlert } from "lucide-react"
+import { Plus, UserPen, UserMinus, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
@@ -50,6 +50,10 @@ function getInitials(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
+function avatarColorIndex(value: string) {
+  return Array.from(value).reduce((total, character) => total + character.charCodeAt(0), 0)
+}
+
 function ClientAvatar({ name, colorIndex }: { name: string; colorIndex: number }) {
   const color = AVATAR_COLORS[colorIndex % AVATAR_COLORS.length]
   return (
@@ -91,6 +95,7 @@ export default function ClientesPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [form, setForm] = useState<ClientFormValues>(EMPTY_CLIENT_FORM)
+  const [submitting, setSubmitting] = useState(false)
 
   const filtered = clients.filter((c) => {
     if (search && !c.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -117,24 +122,46 @@ export default function ClientesPage() {
   }
 
   async function handleAdd() {
-    await addClient(form)
-    setAddOpen(false)
-    toast.success("Cliente adicionado com sucesso.")
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      await addClient(form)
+      setAddOpen(false)
+      toast.success("Cliente adicionado com sucesso.")
+    } catch {
+      toast.error("Não foi possível adicionar o cliente.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   async function handleEdit() {
-    if (!selectedClient) return
-    await updateClient(selectedClient.id, form)
-    setEditOpen(false)
-    toast.success("Cliente atualizado.")
+    if (!selectedClient || submitting) return
+    setSubmitting(true)
+    try {
+      await updateClient(selectedClient.id, form)
+      setEditOpen(false)
+      toast.success("Cliente atualizado.")
+    } catch {
+      toast.error("Não foi possível atualizar o cliente.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   async function handleDelete() {
-    if (!selectedClient) return
-    await removeClient(selectedClient.id)
-    setDeleteOpen(false)
-    toast.success(`${selectedClient.name} foi removido.`)
-    setSelectedClient(null)
+    if (!selectedClient || submitting) return
+    setSubmitting(true)
+    try {
+      await removeClient(selectedClient.id)
+      setDeleteOpen(false)
+      toast.success(`${selectedClient.name} foi removido.`)
+      setSelectedClient(null)
+    } catch {
+      toast.error("Não foi possível remover o cliente.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const columns: Column<Client>[] = [
@@ -143,7 +170,7 @@ export default function ClientesPage() {
       label: "Nome",
       render: (row) => (
         <div className="flex items-center gap-3">
-          <ClientAvatar name={row.name} colorIndex={parseInt(row.id) - 1} />
+          <ClientAvatar name={row.name} colorIndex={avatarColorIndex(row.id)} />
           <span className="font-medium">{row.name}</span>
         </div>
       ),
@@ -155,7 +182,6 @@ export default function ClientesPage() {
       label: "Status",
       render: (row) => <StatusBadge status={row.status} />,
     },
-    { key: "lastPurchase",  label: "Última Compra" },
     {
       key: "actions",
       label: "Ações",
@@ -208,24 +234,14 @@ export default function ClientesPage() {
           </>
         }
         actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 text-(--color-text-secondary) border-(--color-border)"
-            >
-              <Download size={14} />
-              Exportar
-            </Button>
-            <Button
-              size="sm"
-              className="gap-2 bg-(--color-accent) text-white"
-              onClick={openAdd}
-            >
-              <Plus size={14} />
-              Novo Cliente
-            </Button>
-          </>
+          <Button
+            size="sm"
+            className="gap-2 bg-(--color-accent) text-white"
+            onClick={openAdd}
+          >
+            <Plus size={14} />
+            Novo Cliente
+          </Button>
         }
         pagination={{
           page,
@@ -248,7 +264,7 @@ export default function ClientesPage() {
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={!form.name || !form.email}
+              disabled={!form.name || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar
@@ -270,7 +286,7 @@ export default function ClientesPage() {
             </Button>
             <Button
               onClick={handleEdit}
-              disabled={!form.name || !form.email}
+              disabled={!form.name || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar Alterações
@@ -288,7 +304,7 @@ export default function ClientesPage() {
             </AlertDialogMedia>
             <AlertDialogTitle>Remover cliente?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedClient?.name} será removido permanentemente. Esta ação não pode ser desfeita.
+              {selectedClient?.name} será arquivado e deixará de aparecer nas operações ativas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -297,9 +313,10 @@ export default function ClientesPage() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
+              disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Remover
+              Arquivar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

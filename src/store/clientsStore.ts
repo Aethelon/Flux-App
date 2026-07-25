@@ -1,7 +1,7 @@
 "use client"
 
 import { create } from "zustand"
-import { api, idempotencyHeaders } from "@/lib/api"
+import { api, fetchAllPages, idempotencyHeaders } from "@/lib/api"
 import type { Client } from "@/types/client"
 
 interface ApiCustomer {
@@ -23,7 +23,6 @@ function client(customer: ApiCustomer): Client {
     status: customer.status === "active" ? "Ativo" : "Inativo",
     version: customer.version,
     createdAt: customer.createdAt,
-    lastPurchase: "—",
   }
 }
 
@@ -45,10 +44,8 @@ interface ClientsStore {
 export const useClientsStore = create<ClientsStore>((set, get) => ({
   clients: [],
   loadClients: async () => {
-    const response = await api.get("customers", {
-      searchParams: { pageSize: 100 },
-    }).json<{ data: ApiCustomer[] }>()
-    set({ clients: response.data.map(client) })
+    const response = await fetchAllPages<ApiCustomer>("customers")
+    set({ clients: response.map(client) })
   },
   addClient: async (input) => {
     const created = client(await api.post("customers", {

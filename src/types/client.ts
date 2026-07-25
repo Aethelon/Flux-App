@@ -6,5 +6,4 @@ export interface Client {
   status: "Ativo" | "Inativo"
   version: number
   createdAt: string
-  lastPurchase: string
 }

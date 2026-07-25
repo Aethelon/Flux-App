@@ -226,7 +226,14 @@ export default function OrdensPage() {
     setActiveCard(null)
     setActiveColumn(null)
     setOverColumnId(null)
-    if (!over) return
+    if (!over) {
+      if (originalCard) {
+        setOrders((previous) => previous.map((order) =>
+          order.id === originalCard.id ? originalCard : order
+        ))
+      }
+      return
+    }
 
     if (active.data.current?.type === "column") {
       const overColId = resolveColumnId(String(over.id), orders)
@@ -247,7 +254,10 @@ export default function OrdensPage() {
               },
             })
       )).then(loadOrders)
-        .catch(() => toast.error("Não foi possível reordenar as colunas."))
+        .catch(() => {
+          toast.error("Não foi possível reordenar as colunas.")
+          void loadOrders()
+        })
       return
     }
 
@@ -285,6 +295,11 @@ export default function OrdensPage() {
   }
 
   function handleDragCancel() {
+    if (activeCard) {
+      setOrders((previous) => previous.map((order) =>
+        order.id === activeCard.id ? activeCard : order
+      ))
+    }
     setActiveCard(null)
     setActiveColumn(null)
     setOverColumnId(null)
