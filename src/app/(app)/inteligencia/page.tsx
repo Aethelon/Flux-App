@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   DollarSign,
   ShoppingCart,
@@ -34,7 +34,7 @@ import { MiniLine } from "@/components/shared/MiniLine"
 import { formatCurrency } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { SEASONALITIES } from "@/data/insights"
-import { INITIAL_PRODUCTS } from "@/data/products"
+import { useProductsStore } from "@/store/productsStore"
 import { INITIAL_COLUMNS, INITIAL_ORDERS, CLOSED_COLUMN_IDS, visibleOrders } from "@/data/orders"
 import { INITIAL_HISTORY, revenueByType, REVENUE_TREND, TREND_LABELS } from "@/data/history"
 import {
@@ -48,7 +48,6 @@ type Period = "mensal" | "trimestral"
 
 // ── Dados derivados das fontes compartilhadas (mesmos números do Dashboard,
 // do Histórico, do Inventário e das Ordens) ──
-const CRITICAL_STOCK = INITIAL_PRODUCTS.filter((p) => p.status !== "Ativo").length
 // Mesmo conjunto visível no board de Ordens (concluídas antigas arquivadas).
 const BOARD_ORDERS = visibleOrders(INITIAL_ORDERS)
 const OPEN_ORDERS = BOARD_ORDERS.filter(
@@ -77,7 +76,6 @@ const QUARTER_GROWTH = ((QUARTER_REVENUE / PREV_QUARTER_REVENUE - 1) * 100)
 
 // Evolução mensal dos demais KPIs: 5 meses mock + valor atual derivado.
 const SALES_SERIES = [11, 13, 15, 14, 16, INITIAL_HISTORY.length]
-const CRITICAL_SERIES = [6, 7, 9, 8, 10, CRITICAL_STOCK]
 
 function kpiPoints(series: number[], display: (v: number) => string) {
   return series.map((value, i) => ({
@@ -314,7 +312,7 @@ const REPORT_ATTENTION: ReportSection = {
   icon: TriangleAlert,
   iconClass: "text-(--color-warning)",
   bullets: [
-    `${CRITICAL_STOCK} produtos abaixo do estoque mínimo ou esgotados — risco de ruptura em itens de alta saída.`,
+    "Produtos abaixo do estoque mínimo ou esgotados exigem revisão antes da reposição.",
     "Índice de atraso nas entregas em 12%, acima da meta de 10%.",
     "Ciclo financeiro em 34 dias, 4 dias acima da meta ideal.",
   ],
@@ -782,9 +780,17 @@ function CaixaAnalytics() {
 }
 
 export default function InteligenciaPage() {
+  const products = useProductsStore((state) => state.products)
+  const loadProducts = useProductsStore((state) => state.loadProducts)
+  const CRITICAL_STOCK = products.filter((product) => product.status !== "Ativo").length
+  const CRITICAL_SERIES = [0, 0, 0, 0, 0, CRITICAL_STOCK]
   const [segment, setSegment] = useState<Segment>("produto")
   const [period, setPeriod] = useState<Period>("mensal")
   const [reportState, setReportState] = useState<"idle" | "loading" | "ready">("idle")
+
+  useEffect(() => {
+    void loadProducts()
+  }, [loadProducts])
 
   function handleGenerateReport() {
     setReportState("loading")

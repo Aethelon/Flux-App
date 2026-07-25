@@ -11,11 +11,11 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react"
-import { INITIAL_PRODUCTS } from "@/data/products"
 import { INITIAL_COLUMNS, INITIAL_ORDERS, visibleOrders } from "@/data/orders"
 import { INITIAL_HISTORY, entryTotal } from "@/data/history"
 import { formatCurrency } from "@/lib/formatters"
 import type { Client } from "@/types/client"
+import type { Product } from "@/types/product"
 
 export type SearchGroup =
   | "Produtos"
@@ -140,8 +140,8 @@ const PAGE_ITEMS: SearchItem[] = [
 // Produtos e clientes abrem a tela já filtrada pelo nome (o `q` alimenta a
 // busca da própria tabela). Ordens e compras não têm filtro de busca, então
 // levam para a tela onde o item está listado.
-function productItems(): SearchItem[] {
-  return INITIAL_PRODUCTS.map((p) => ({
+function productItems(products: Product[]): SearchItem[] {
+  return products.map((p) => ({
     id: `produto-${p.id}`,
     label: p.name,
     description: `${formatCurrency(p.price)} · ${
@@ -195,9 +195,9 @@ function historyItems(): SearchItem[] {
 
 // Clientes vêm do store (podem ser cadastrados em tempo real); o resto sai das
 // mesmas fontes que alimentam as telas.
-export function buildSearchIndex(clients: Client[]): SearchItem[] {
+export function buildSearchIndex(clients: Client[], products: Product[]): SearchItem[] {
   return [
-    ...productItems(),
+    ...productItems(products),
     ...clientItems(clients),
     ...orderItems(),
     ...historyItems(),

@@ -1,40 +1,46 @@
 "use client"
 
 import { create } from "zustand"
-import { persist } from "zustand/middleware"
+import { api } from "@/lib/api"
 import type { Category } from "@/types/settings"
-
-const INITIAL_CATEGORIES: Category[] = [
-  { id: "1", name: "Matéria-Prima" },
-  { id: "2", name: "Produto Acabado" },
-  { id: "3", name: "Embalagem" },
-  { id: "4", name: "Serviços" },
-]
 
 interface CategoriesStore {
   categories: Category[]
-  addCategory: (name: string) => void
-  updateCategory: (id: string, name: string) => void
-  removeCategory: (id: string) => void
+  loadCategories: () => Promise<void>
+  addCategory: (name: string) => Promise<void>
+  updateCategory: (id: string, name: string) => Promise<void>
+  removeCategory: (id: string) => Promise<void>
 }
 
-export const useCategoriesStore = create<CategoriesStore>()(
-  persist(
-    (set) => ({
-      categories: INITIAL_CATEGORIES,
-      addCategory: (name) =>
-        set((state) => ({
-          categories: [...state.categories, { id: String(Date.now()), name }],
-        })),
-      updateCategory: (id, name) =>
-        set((state) => ({
-          categories: state.categories.map((c) => (c.id === id ? { ...c, name } : c)),
-        })),
-      removeCategory: (id) =>
-        set((state) => ({
-          categories: state.categories.filter((c) => c.id !== id),
-        })),
-    }),
-    { name: "flux-categories" }
-  )
-)
+export const useCategoriesStore = create<CategoriesStore>((set, get) => ({
+  categories: [],
+  loadCategories: async () => {
+    set({ categories: await api.get("categories").json<Category[]>() })
+  },
+  addCategory: async (name) => {
+    const created = await api.post("categories", {
+      json: { name },
+    }).json<Category>()
+    set((state) => ({ categories: [...state.categories, created] }))
+  },
+  updateCategory: async (id, name) => {
+    const current = get().categories.find((item) => item.id === id)
+    if (!current) return
+    const updated = await api.patch(`categories/${id}`, {
+      json: { version: current.version, name },
+    }).json<Category>()
+    set((state) => ({
+      categories: state.categories.map((item) => item.id === id ? updated : item),
+    }))
+  },
+  removeCategory: async (id) => {
+    const current = get().categories.find((item) => item.id === id)
+    if (!current) return
+    await api.delete(`categories/${id}`, {
+      searchParams: { version: current.version },
+    })
+    set((state) => ({
+      categories: state.categories.filter((item) => item.id !== id),
+    }))
+  },
+}))

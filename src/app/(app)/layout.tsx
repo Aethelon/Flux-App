@@ -20,6 +20,7 @@ export default async function AuthenticatedLayout({
     const payload = await verifyToken(token)
     user = {
       id: payload.sub,
+      tenantId: payload.tenantId,
       name: payload.name,
       email: payload.email,
       role: payload.role,

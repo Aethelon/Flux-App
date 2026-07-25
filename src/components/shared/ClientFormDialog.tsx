@@ -39,8 +39,8 @@ export function ClientFormDialog({
     if (open) setForm({ ...EMPTY_CLIENT_FORM, name: initialName })
   }
 
-  function handleSave() {
-    const client = addClient(form)
+  async function handleSave() {
+    const client = await addClient(form)
     toast.success("Cliente adicionado com sucesso.")
     onCreated?.(client)
     onOpenChange(false)

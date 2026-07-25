@@ -1,5 +1,7 @@
 export interface JWTPayload {
   sub: string
+  tenantId: string
+  sessionId: string
   name: string
   email: string
   role: "admin" | "funcionario"
@@ -9,6 +11,7 @@ export interface JWTPayload {
 
 export interface AuthUser {
   id: string
+  tenantId: string
   name: string
   email: string
   role: "admin" | "funcionario"

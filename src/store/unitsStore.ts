@@ -1,17 +1,8 @@
 "use client"
 
 import { create } from "zustand"
-import { persist } from "zustand/middleware"
+import { api } from "@/lib/api"
 import type { Unit } from "@/types/settings"
-
-const INITIAL_UNITS: Unit[] = [
-  { id: "1", name: "Unidade", abbreviation: "un" },
-  { id: "2", name: "Quilograma", abbreviation: "kg" },
-  { id: "3", name: "Metro", abbreviation: "m" },
-  { id: "4", name: "Metro Quadrado", abbreviation: "m²" },
-  { id: "5", name: "Litro", abbreviation: "l" },
-  { id: "6", name: "Caixa", abbreviation: "cx" },
-]
 
 export interface UnitInput {
   name: string
@@ -20,28 +11,41 @@ export interface UnitInput {
 
 interface UnitsStore {
   units: Unit[]
-  addUnit: (input: UnitInput) => void
-  updateUnit: (id: string, input: UnitInput) => void
-  removeUnit: (id: string) => void
+  loadUnits: () => Promise<void>
+  addUnit: (input: UnitInput) => Promise<void>
+  updateUnit: (id: string, input: UnitInput) => Promise<void>
+  removeUnit: (id: string) => Promise<void>
 }
 
-export const useUnitsStore = create<UnitsStore>()(
-  persist(
-    (set) => ({
-      units: INITIAL_UNITS,
-      addUnit: (input) =>
-        set((state) => ({
-          units: [...state.units, { id: String(Date.now()), ...input }],
-        })),
-      updateUnit: (id, input) =>
-        set((state) => ({
-          units: state.units.map((u) => (u.id === id ? { ...u, ...input } : u)),
-        })),
-      removeUnit: (id) =>
-        set((state) => ({
-          units: state.units.filter((u) => u.id !== id),
-        })),
-    }),
-    { name: "flux-units" }
-  )
-)
+export const useUnitsStore = create<UnitsStore>((set, get) => ({
+  units: [],
+  loadUnits: async () => {
+    set({ units: await api.get("units").json<Unit[]>() })
+  },
+  addUnit: async (input) => {
+    const created = await api.post("units", {
+      json: { ...input, allowsFractional: false, quantityScale: 0 },
+    }).json<Unit>()
+    set((state) => ({ units: [...state.units, created] }))
+  },
+  updateUnit: async (id, input) => {
+    const current = get().units.find((item) => item.id === id)
+    if (!current) return
+    const updated = await api.patch(`units/${id}`, {
+      json: { version: current.version, ...input },
+    }).json<Unit>()
+    set((state) => ({
+      units: state.units.map((item) => item.id === id ? updated : item),
+    }))
+  },
+  removeUnit: async (id) => {
+    const current = get().units.find((item) => item.id === id)
+    if (!current) return
+    await api.delete(`units/${id}`, {
+      searchParams: { version: current.version },
+    })
+    set((state) => ({
+      units: state.units.filter((item) => item.id !== id),
+    }))
+  },
+}))

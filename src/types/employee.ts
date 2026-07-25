@@ -5,5 +5,6 @@ export interface Employee {
   phone: string
   role: string
   status: "Ativo" | "Inativo"
+  version: number
   createdAt: string
 }

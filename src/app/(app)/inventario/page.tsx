@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Download, Plus, Eye, Pencil, Trash2, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
@@ -41,17 +41,19 @@ import {
 } from "@/components/ui/select"
 import { formatCurrency, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import { INITIAL_PRODUCTS, isService } from "@/data/products"
+import { isService } from "@/data/products"
+import { api, idempotencyHeaders } from "@/lib/api"
 import { useCategoriesStore } from "@/store/categoriesStore"
 import { useUnitsStore } from "@/store/unitsStore"
+import { useProductsStore } from "@/store/productsStore"
 import type { Unit, Category } from "@/types/settings"
 import type { Product } from "@/types/product"
 
-function getProductStatus(stock: number, minStock: number, category: string): Product["status"] {
-  if (isService(category)) return "Ativo" // serviço não controla estoque
-  if (stock <= 0) return "Esgotado"
-  if (stock <= minStock) return "Baixo estoque"
-  return "Ativo"
+function productType(category: string): Product["type"] {
+  if (category === "Serviços") return "service"
+  if (category === "Matéria-Prima") return "raw_material"
+  if (category === "Embalagem") return "packaging"
+  return "finished_product"
 }
 
 function StockCell({ product }: { product: Product }) {
@@ -98,6 +100,7 @@ interface ProductForm {
   unit: string
   stock: string
   price: string
+  cost: string
   minStock: string
   active: boolean
 }
@@ -110,17 +113,26 @@ const EMPTY_FORM: ProductForm = {
   unit: "",
   stock: "",
   price: "",
+  cost: "",
   minStock: "0",
   active: true,
 }
 
 export default function InventarioPage() {
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS)
+  const products = useProductsStore((state) => state.products)
+  const loadProducts = useProductsStore((state) => state.loadProducts)
 
   // Categorias e unidades vêm dos mesmos stores editados em Configurações —
   // cadastrar/renomear lá reflete aqui imediatamente.
   const categories = useCategoriesStore((s) => s.categories)
   const units = useUnitsStore((s) => s.units)
+  const loadCategories = useCategoriesStore((s) => s.loadCategories)
+  const loadUnits = useUnitsStore((s) => s.loadUnits)
+
+  useEffect(() => {
+    void Promise.all([loadCategories(), loadUnits(), loadProducts()])
+      .catch(() => toast.error("Não foi possível carregar o inventário."))
+  }, [loadCategories, loadProducts, loadUnits])
   const categoryFilters = [
     { value: "todas", label: "Todas" },
     ...categories.map((c) => ({ value: c.name, label: c.name })),
@@ -174,6 +186,7 @@ export default function InventarioPage() {
       unit: product.unit,
       stock: String(product.stock),
       price: formatPriceInput(product.price),
+      cost: product.cost === null ? "" : formatPriceInput(product.cost),
       minStock: String(product.minStock),
       active: product.active,
     })
@@ -190,61 +203,98 @@ export default function InventarioPage() {
     setViewOpen(true)
   }
 
-  function handleAdd() {
+  async function handleAdd() {
     const service = isService(form.category)
     const stock = service ? 0 : Number(form.stock) || 0
     const minStock = service ? 0 : Number(form.minStock) || 0
-    const newProduct: Product = {
-      id: String(Date.now()),
-      name: form.name,
-      description: form.description,
-      barcode: form.barcode,
-      category: form.category,
-      unit: form.unit,
-      price: parsePriceInput(form.price),
-      stock,
-      minStock,
-      active: form.active,
-      status: getProductStatus(stock, minStock, form.category),
-      lastUpdate: "Última atualização: agora",
+    const category = categories.find((item) => item.name === form.category)
+    const unit = units.find((item) => item.abbreviation === form.unit)
+    if (!category || !unit) return
+    const created = await api.post("products", {
+      json: {
+        barcode: form.barcode || null,
+        type: productType(form.category),
+        name: form.name,
+        description: form.description,
+        active: form.active,
+        minimumStock: minStock,
+        priceCents: Math.round(parsePriceInput(form.price) * 100),
+        costCents: form.cost ? Math.round(parsePriceInput(form.cost) * 100) : null,
+        costSource: form.cost ? "manual" : null,
+        categoryId: category.id,
+        unitId: unit.id,
+      },
+    }).json<{ id: string }>()
+    if (stock > 0) {
+      await api.post("inventory/movements", {
+        headers: idempotencyHeaders(),
+        json: {
+          productId: created.id,
+          type: "positive_adjustment",
+          quantity: stock,
+          unitCostCents: form.cost
+            ? Math.round(parsePriceInput(form.cost) * 100)
+            : undefined,
+          reason: "Initial inventory balance.",
+        },
+      })
     }
-    setProducts((prev) => [newProduct, ...prev])
+    await loadProducts()
     setAddOpen(false)
     toast.success("Produto adicionado com sucesso.")
   }
 
-  function handleEdit() {
+  async function handleEdit() {
     if (!selectedProduct) return
     const service = isService(form.category)
     const stock = service ? 0 : Number(form.stock) || 0
     const minStock = service ? 0 : Number(form.minStock) || 0
-    setProducts((prev) =>
-      prev.map((p) =>
-        p.id === selectedProduct.id
-          ? {
-              ...p,
-              name: form.name,
-              description: form.description,
-              barcode: form.barcode,
-              category: form.category,
-              unit: form.unit,
-              price: parsePriceInput(form.price),
-              stock,
-              minStock,
-              active: form.active,
-              status: getProductStatus(stock, minStock, form.category),
-              lastUpdate: "Última atualização: agora",
-            }
-          : p
-      )
-    )
+    const category = categories.find((item) => item.name === form.category)
+    const unit = units.find((item) => item.abbreviation === form.unit)
+    if (!category || !unit) return
+    await api.patch(`products/${selectedProduct.id}`, {
+      json: {
+        version: selectedProduct.version,
+        barcode: form.barcode || null,
+        type: selectedProduct.type,
+        name: form.name,
+        description: form.description,
+        active: form.active,
+        minimumStock: minStock,
+        priceCents: Math.round(parsePriceInput(form.price) * 100),
+        costCents: form.cost ? Math.round(parsePriceInput(form.cost) * 100) : null,
+        costSource: form.cost ? "manual" : null,
+        categoryId: category.id,
+        unitId: unit.id,
+        changeReason: "Updated through inventory screen.",
+      },
+    })
+    const difference = stock - selectedProduct.stock
+    if (!service && difference !== 0) {
+      await api.post("inventory/movements", {
+        headers: idempotencyHeaders(),
+        json: {
+          productId: selectedProduct.id,
+          type: difference > 0 ? "positive_adjustment" : "negative_adjustment",
+          quantity: Math.abs(difference),
+          ...(difference > 0 && form.cost
+            ? { unitCostCents: Math.round(parsePriceInput(form.cost) * 100) }
+            : {}),
+          reason: "Inventory balance corrected through inventory screen.",
+        },
+      })
+    }
+    await loadProducts()
     setEditOpen(false)
     toast.success("Produto atualizado.")
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!selectedProduct) return
-    setProducts((prev) => prev.filter((p) => p.id !== selectedProduct.id))
+    await api.delete(`products/${selectedProduct.id}`, {
+      searchParams: { version: selectedProduct.version },
+    })
+    await loadProducts()
     setDeleteOpen(false)
     toast.success(`${selectedProduct.name} foi removido.`)
     setSelectedProduct(null)
@@ -637,6 +687,16 @@ function ProductFormFields({
             onChange={(e) => onChange({ ...form, price: e.target.value })}
           />
         </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="product-cost">Custo unitário</Label>
+        <Input
+          id="product-cost"
+          inputMode="decimal"
+          placeholder="Ex: 750,00"
+          value={form.cost}
+          onChange={(e) => onChange({ ...form, cost: e.target.value })}
+        />
       </div>
       <div className="grid grid-cols-2 gap-4 items-end">
         <div className="flex flex-col gap-1.5">

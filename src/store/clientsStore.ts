@@ -1,23 +1,31 @@
 "use client"
 
 import { create } from "zustand"
+import { api, idempotencyHeaders } from "@/lib/api"
 import type { Client } from "@/types/client"
 
-// Status e última compra espelham o Histórico: quem tem compra registrada lá
-// aparece aqui com a data da compra mais recente. Mariana é a única inativa —
-// a última compra dela é anterior à janela exibida no Histórico.
-const INITIAL_CLIENTS: Client[] = [
-  { id: "1",  name: "Ana Silva",       email: "ana.silva@email.com",      phone: "(11) 98765-4321", status: "Ativo",   createdAt: "2023-01-10", lastPurchase: "Hoje" },
-  { id: "2",  name: "Carlos Oliveira", email: "carlos.o@empresa.com.br",  phone: "(21) 99988-7766", status: "Ativo",   createdAt: "2023-02-05", lastPurchase: "Hoje" },
-  { id: "3",  name: "Mariana Pereira", email: "mari.p@dominio.com",        phone: "(31) 97766-5544", status: "Inativo", createdAt: "2023-03-14", lastPurchase: "14 Mar 2026" },
-  { id: "4",  name: "Rafael Ribeiro",  email: "rafael.ribeiro@email.com", phone: "(41) 98855-2211", status: "Ativo",   createdAt: "2023-04-22", lastPurchase: "Ontem" },
-  { id: "5",  name: "Lucas Teixeira",  email: "lucas.tx@empresa.com",     phone: "(51) 99123-4567", status: "Ativo",   createdAt: "2023-05-01", lastPurchase: "Hoje" },
-  { id: "6",  name: "Fernanda Costa",  email: "fe.costa@email.com",       phone: "(11) 91234-5678", status: "Ativo",   createdAt: "2023-06-10", lastPurchase: "Ontem" },
-  { id: "7",  name: "Bruno Mendes",    email: "bruno.m@empresa.com.br",   phone: "(31) 92233-4455", status: "Ativo",   createdAt: "2023-07-14", lastPurchase: "Ontem" },
-  { id: "8",  name: "Julia Santos",    email: "ju.santos@dominio.com",    phone: "(41) 93344-5566", status: "Ativo",   createdAt: "2023-08-22", lastPurchase: "Ontem" },
-  { id: "9",  name: "Pedro Alves",     email: "pedro.a@empresa.com",      phone: "(51) 94455-6677", status: "Ativo",   createdAt: "2023-09-01", lastPurchase: "07 Jul 2026" },
-  { id: "10", name: "Camila Rocha",    email: "camila.r@email.com",       phone: "(21) 95566-7788", status: "Ativo",   createdAt: "2023-10-14", lastPurchase: "05 Jul 2026" },
-]
+interface ApiCustomer {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+  status: "active" | "inactive"
+  version: number
+  createdAt: string
+}
+
+function client(customer: ApiCustomer): Client {
+  return {
+    id: customer.id,
+    name: customer.name,
+    email: customer.email ?? "",
+    phone: customer.phone ?? "",
+    status: customer.status === "active" ? "Ativo" : "Inativo",
+    version: customer.version,
+    createdAt: customer.createdAt,
+    lastPurchase: "—",
+  }
+}
 
 export interface NewClientInput {
   name: string
@@ -28,27 +36,57 @@ export interface NewClientInput {
 
 interface ClientsStore {
   clients: Client[]
-  addClient: (input: NewClientInput) => Client
-  updateClient: (id: string, input: NewClientInput) => void
-  removeClient: (id: string) => void
+  loadClients: () => Promise<void>
+  addClient: (input: NewClientInput) => Promise<Client>
+  updateClient: (id: string, input: NewClientInput) => Promise<void>
+  removeClient: (id: string) => Promise<void>
 }
 
-export const useClientsStore = create<ClientsStore>((set) => ({
-  clients: INITIAL_CLIENTS,
-  addClient: (input) => {
-    const client: Client = {
-      id: String(Date.now()),
-      ...input,
-      createdAt: new Date().toISOString().slice(0, 10),
-      lastPurchase: "—",
-    }
-    set((state) => ({ clients: [client, ...state.clients] }))
-    return client
+export const useClientsStore = create<ClientsStore>((set, get) => ({
+  clients: [],
+  loadClients: async () => {
+    const response = await api.get("customers", {
+      searchParams: { pageSize: 100 },
+    }).json<{ data: ApiCustomer[] }>()
+    set({ clients: response.data.map(client) })
   },
-  updateClient: (id, input) =>
+  addClient: async (input) => {
+    const created = client(await api.post("customers", {
+      headers: idempotencyHeaders(),
+      json: {
+        name: input.name,
+        email: input.email || null,
+        phone: input.phone || null,
+        status: input.status === "Ativo" ? "active" : "inactive",
+      },
+    }).json<ApiCustomer>())
+    set((state) => ({ clients: [created, ...state.clients] }))
+    return created
+  },
+  updateClient: async (id, input) => {
+    const current = get().clients.find((item) => item.id === id)
+    if (!current) return
+    const updated = client(await api.patch(`customers/${id}`, {
+      headers: idempotencyHeaders(),
+      json: {
+        version: current.version,
+        name: input.name,
+        email: input.email || null,
+        phone: input.phone || null,
+        status: input.status === "Ativo" ? "active" : "inactive",
+      },
+    }).json<ApiCustomer>())
     set((state) => ({
-      clients: state.clients.map((c) => (c.id === id ? { ...c, ...input } : c)),
-    })),
-  removeClient: (id) =>
-    set((state) => ({ clients: state.clients.filter((c) => c.id !== id) })),
+      clients: state.clients.map((item) => item.id === id ? updated : item),
+    }))
+  },
+  removeClient: async (id) => {
+    const current = get().clients.find((item) => item.id === id)
+    if (!current) return
+    await api.delete(`customers/${id}`, {
+      headers: idempotencyHeaders(),
+      searchParams: { version: current.version },
+    })
+    set((state) => ({ clients: state.clients.filter((item) => item.id !== id) }))
+  },
 }))

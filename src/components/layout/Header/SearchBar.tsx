@@ -14,10 +14,14 @@ import { buildSearchIndex, searchItems } from "@/lib/searchIndex"
 import { canAccessRoute } from "@/lib/accessControl"
 import { useClientsStore } from "@/store/clientsStore"
 import { useUserStore } from "@/store/userStore"
+import { useProductsStore } from "@/store/productsStore"
 
 export function SearchBar() {
   const router = useRouter()
   const clients = useClientsStore((s) => s.clients)
+  const loadClients = useClientsStore((s) => s.loadClients)
+  const products = useProductsStore((s) => s.products)
+  const loadProducts = useProductsStore((s) => s.loadProducts)
   const role = useUserStore((s) => s.user?.role ?? "funcionario")
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
@@ -27,14 +31,18 @@ export function SearchBar() {
   const groups = useMemo(
     () =>
       searchItems(
-        buildSearchIndex(clients).filter((item) => canAccessRoute(role, item.href)),
+        buildSearchIndex(clients, products).filter((item) => canAccessRoute(role, item.href)),
         query
       ),
-    [clients, query, role]
+    [clients, products, query, role]
   )
   const showResults = open && query.trim().length > 0
 
   // ⌘K foca a barra (antes abria um modal separado).
+  useEffect(() => {
+    void Promise.all([loadClients(), loadProducts()])
+  }, [loadClients, loadProducts])
+
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {

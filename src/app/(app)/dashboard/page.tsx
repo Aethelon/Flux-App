@@ -1,3 +1,6 @@
+"use client"
+
+import { useEffect } from "react"
 import Link from "next/link"
 import { TrendingUp, TriangleAlert, Sparkles, ArrowRight } from "lucide-react"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -5,7 +8,7 @@ import { MiniLine } from "@/components/shared/MiniLine"
 import { CaixaResumoCard } from "@/components/caixa/CaixaResumoCard"
 import { formatCurrency } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import { INITIAL_PRODUCTS } from "@/data/products"
+import { useProductsStore } from "@/store/productsStore"
 import { INITIAL_COLUMNS, INITIAL_ORDERS, CLOSED_COLUMN_IDS, visibleOrders } from "@/data/orders"
 import { INITIAL_HISTORY, revenueByType, REVENUE_TREND, TREND_LABELS } from "@/data/history"
 import { SEASONALITIES } from "@/data/insights"
@@ -84,8 +87,14 @@ function MiniBars({
 }
 
 export default function DashboardPage() {
+  const products = useProductsStore((state) => state.products)
+  const loadProducts = useProductsStore((state) => state.loadProducts)
+  useEffect(() => {
+    void loadProducts()
+  }, [loadProducts])
+
   // Alerta de estoque derivado da mesma fonte do Inventário (coesão entre telas).
-  const stockAlerts = INITIAL_PRODUCTS.filter(
+  const stockAlerts = products.filter(
     (p) => p.status === "Baixo estoque" || p.status === "Esgotado"
   )
 

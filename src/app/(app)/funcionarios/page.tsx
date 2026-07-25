@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Download, Plus, UserPen, UserMinus, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
+import { api, idempotencyHeaders } from "@/lib/api"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
 import { StatusBadge } from "@/components/shared/StatusBadge"
@@ -38,12 +39,29 @@ import {
 } from "@/components/ui/select"
 import type { Employee } from "@/types/employee"
 
-const INITIAL_EMPLOYEES: Employee[] = [
-  { id: "1", name: "Ana Silva",      email: "ana.silva@email.com",      phone: "(11) 98765-4321", role: "Funcionário",   status: "Ativo",   createdAt: "2023-01-10" },
-  { id: "2", name: "Carlos Oliveira", email: "carlos.o@empresa.com.br", phone: "(21) 99988-7766", role: "Administrador", status: "Ativo",   createdAt: "2023-02-05" },
-  { id: "3", name: "Mariana Pereira", email: "mari.p@dominio.com",       phone: "(31) 97766-5544", role: "Funcionário",   status: "Inativo", createdAt: "2023-03-14" },
-  { id: "4", name: "Rafael Ribeiro",  email: "rafael.ribeiro@email.com", phone: "(41) 98855-2211", role: "Funcionário",   status: "Ativo",   createdAt: "2023-04-22" },
-]
+interface ApiEmployee {
+  id: string
+  name: string
+  email: string
+  phone: string | null
+  role: "admin" | "funcionario"
+  status: "active" | "inactive"
+  version: number
+  createdAt: string
+}
+
+function employee(value: ApiEmployee): Employee {
+  return {
+    id: value.id,
+    name: value.name,
+    email: value.email,
+    phone: value.phone ?? "",
+    role: value.role === "admin" ? "Administrador" : "Funcionário",
+    status: value.status === "active" ? "Ativo" : "Inativo",
+    version: value.version,
+    createdAt: value.createdAt,
+  }
+}
 
 const AVATAR_COLORS = [
   "bg-[#5B6AF0]",
@@ -84,12 +102,13 @@ interface EmployeeForm {
   phone: string
   role: "Funcionário" | "Administrador"
   status: "Ativo" | "Inativo"
+  password: string
 }
 
-const EMPTY_FORM: EmployeeForm = { name: "", email: "", phone: "", role: "Funcionário", status: "Ativo" }
+const EMPTY_FORM: EmployeeForm = { name: "", email: "", phone: "", role: "Funcionário", status: "Ativo", password: "" }
 
 export default function FuncionariosPage() {
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES)
+  const [employees, setEmployees] = useState<Employee[]>([])
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("todos")
   const [page, setPage] = useState(1)
@@ -99,6 +118,14 @@ export default function FuncionariosPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [form, setForm] = useState<EmployeeForm>(EMPTY_FORM)
+
+  useEffect(() => {
+    void api.get("employees", {
+      searchParams: { pageSize: 100 },
+    }).json<{ data: ApiEmployee[] }>()
+      .then((response) => setEmployees(response.data.map(employee)))
+      .catch(() => toast.error("Não foi possível carregar os funcionários."))
+  }, [])
 
   const filtered = employees.filter((e) => {
     if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -121,6 +148,7 @@ export default function FuncionariosPage() {
       phone: employee.phone,
       role: employee.role as EmployeeForm["role"],
       status: employee.status,
+      password: "",
     })
     setEditOpen(true)
   }
@@ -130,30 +158,52 @@ export default function FuncionariosPage() {
     setDeleteOpen(true)
   }
 
-  function handleAdd() {
-    const newEmployee: Employee = {
-      id: String(Date.now()),
-      ...form,
-      createdAt: new Date().toISOString().slice(0, 10),
-    }
-    setEmployees((prev) => [newEmployee, ...prev])
+  async function handleAdd() {
+    const created = employee(await api.post("employees", {
+      headers: idempotencyHeaders(),
+      json: {
+        name: form.name,
+        email: form.email,
+        phone: form.phone || null,
+        role: form.role === "Administrador" ? "admin" : "funcionario",
+        status: form.status === "Ativo" ? "active" : "inactive",
+        password: form.password,
+      },
+    }).json<ApiEmployee>())
+    setEmployees((previous) => [created, ...previous])
     setAddOpen(false)
     toast.success("Funcionário adicionado com sucesso.")
   }
 
-  function handleEdit() {
+  async function handleEdit() {
     if (!selectedEmployee) return
+    const updated = employee(await api.patch(`employees/${selectedEmployee.id}`, {
+      headers: idempotencyHeaders(),
+      json: {
+        version: selectedEmployee.version,
+        name: form.name,
+        email: form.email,
+        phone: form.phone || null,
+        role: form.role === "Administrador" ? "admin" : "funcionario",
+        status: form.status === "Ativo" ? "active" : "inactive",
+        ...(form.password ? { password: form.password } : {}),
+      },
+    }).json<ApiEmployee>())
     setEmployees((prev) =>
       prev.map((e) =>
-        e.id === selectedEmployee.id ? { ...e, ...form } : e
+        e.id === selectedEmployee.id ? updated : e
       )
     )
     setEditOpen(false)
     toast.success("Funcionário atualizado.")
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!selectedEmployee) return
+    await api.delete(`employees/${selectedEmployee.id}`, {
+      headers: idempotencyHeaders(),
+      searchParams: { version: selectedEmployee.version },
+    })
     setEmployees((prev) => prev.filter((e) => e.id !== selectedEmployee.id))
     setDeleteOpen(false)
     toast.success(`${selectedEmployee.name} foi removido.`)
@@ -271,7 +321,7 @@ export default function FuncionariosPage() {
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={!form.name || !form.email}
+              disabled={!form.name || !form.email || form.password.length < 12}
               className="bg-(--color-accent) text-white"
             >
               Salvar
@@ -366,6 +416,16 @@ function EmployeeFormFields({
           placeholder="(00) 00000-0000"
           value={form.phone}
           onChange={(e) => onChange({ ...form, phone: e.target.value })}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="employee-password">Senha</Label>
+        <Input
+          id="employee-password"
+          type="password"
+          placeholder="Mínimo de 12 caracteres"
+          value={form.password}
+          onChange={(e) => onChange({ ...form, password: e.target.value })}
         />
       </div>
       <div className="flex flex-col gap-1.5">

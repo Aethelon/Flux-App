@@ -4,6 +4,7 @@ export interface Client {
   email: string
   phone: string
   status: "Ativo" | "Inativo"
+  version: number
   createdAt: string
   lastPurchase: string
 }

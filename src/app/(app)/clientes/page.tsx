@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Download, Plus, UserPen, UserMinus, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
@@ -74,6 +74,11 @@ export default function ClientesPage() {
   const addClient = useClientsStore((s) => s.addClient)
   const updateClient = useClientsStore((s) => s.updateClient)
   const removeClient = useClientsStore((s) => s.removeClient)
+  const loadClients = useClientsStore((s) => s.loadClients)
+
+  useEffect(() => {
+    void loadClients().catch(() => toast.error("Não foi possível carregar os clientes."))
+  }, [loadClients])
 
   // A busca global manda o cliente escolhido em `?q=` para a tela abrir filtrada.
   const searchParams = useSearchParams()
@@ -111,22 +116,22 @@ export default function ClientesPage() {
     setDeleteOpen(true)
   }
 
-  function handleAdd() {
-    addClient(form)
+  async function handleAdd() {
+    await addClient(form)
     setAddOpen(false)
     toast.success("Cliente adicionado com sucesso.")
   }
 
-  function handleEdit() {
+  async function handleEdit() {
     if (!selectedClient) return
-    updateClient(selectedClient.id, form)
+    await updateClient(selectedClient.id, form)
     setEditOpen(false)
     toast.success("Cliente atualizado.")
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!selectedClient) return
-    removeClient(selectedClient.id)
+    await removeClient(selectedClient.id)
     setDeleteOpen(false)
     toast.success(`${selectedClient.name} foi removido.`)
     setSelectedClient(null)

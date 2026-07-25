@@ -33,12 +33,13 @@ import { formatCurrency, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { describePayment, type Payment } from "@/types/payment"
 import type { SaleInput } from "@/types/history"
-import { INITIAL_PRODUCTS, isService } from "@/data/products"
+import { isService } from "@/data/products"
 import { INITIAL_ORDERS, CLOSED_COLUMN_IDS } from "@/data/orders"
 import type { Product } from "@/types/product"
 import type { Order } from "@/types/order"
 import { useCaixaStore } from "@/store/caixaStore"
 import { useUserStore } from "@/store/userStore"
+import { useProductsStore } from "@/store/productsStore"
 import {
   AbrirCaixaDialog,
   FecharCaixaDialog,
@@ -46,19 +47,9 @@ import {
   type ResumoFechamento,
 } from "@/components/caixa/CaixaPanel"
 
-// Catálogo vem da mesma fonte do Inventário. A frente de caixa vende itens
-// acabados e serviços: matéria-prima não vai ao balcão e itens inativos não
-// aparecem para venda.
-const CATALOG = INITIAL_PRODUCTS.filter((p) => p.active && p.category !== "Matéria-Prima")
-
 // "Ordens" entra como uma categoria à parte no fim da lista: são ordens de
 // serviço ainda em aberto (não encerradas) que podem ser cobradas no balcão.
 const ORDERS_CATEGORY = "Ordens"
-const CATEGORIES = [
-  "Todos",
-  ...Array.from(new Set(CATALOG.map((p) => p.category))),
-  ORDERS_CATEGORY,
-]
 
 // Ordens vendáveis = tudo que ainda não está numa coluna encerrada
 // (concluído/cancelado). As concluídas já foram pagas na conclusão e vivem no
@@ -354,6 +345,22 @@ export default function FrenteDeCaixaPage() {
   const registrarVenda = useCaixaStore((s) => s.registrarVenda)
   const user = useUserStore((s) => s.user)
   const operador = user?.name ?? "Operador"
+  const products = useProductsStore((state) => state.products)
+  const loadProducts = useProductsStore((state) => state.loadProducts)
+  const CATALOG = products.filter((product) =>
+    product.active && product.type !== "raw_material"
+  )
+  const CATEGORIES = [
+    "Todos",
+    ...Array.from(new Set(CATALOG.map((product) => product.category))),
+    ORDERS_CATEGORY,
+  ]
+
+  useEffect(() => {
+    void loadProducts().catch(() => {
+      toast.error("Não foi possível carregar o catálogo.")
+    })
+  }, [loadProducts])
 
   useEffect(() => {
     const timer = window.setTimeout(() => searchInputRef.current?.focus(), 50)

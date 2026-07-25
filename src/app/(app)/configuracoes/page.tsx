@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useSyncExternalStore } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { useThemeTransition } from "@/lib/useThemeTransition"
 import { Plus, Pencil, Trash2, Upload, TriangleAlert, Check } from "lucide-react"
 import { toast } from "sonner"
@@ -44,6 +44,13 @@ import type { Unit, Category } from "@/types/settings"
 
 export default function ConfiguracoesPage() {
   const [tab, setTab] = useState("unidades")
+  const loadCategories = useCategoriesStore((state) => state.loadCategories)
+  const loadUnits = useUnitsStore((state) => state.loadUnits)
+
+  useEffect(() => {
+    void Promise.all([loadCategories(), loadUnits()])
+      .catch(() => toast.error("Não foi possível carregar as configurações."))
+  }, [loadCategories, loadUnits])
 
   return (
     <div>

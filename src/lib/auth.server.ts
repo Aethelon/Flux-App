@@ -9,7 +9,11 @@ function getSecret() {
 }
 
 export async function verifyToken(token: string): Promise<JWTPayload> {
-  const { payload } = await jwtVerify(token, getSecret())
+  const { payload } = await jwtVerify(token, getSecret(), {
+    issuer: "flux-api",
+    audience: "flux-app",
+    algorithms: ["HS256"],
+  })
   return payload as unknown as JWTPayload
 }
 
