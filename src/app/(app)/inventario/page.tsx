@@ -41,7 +41,6 @@ import {
 } from "@/components/ui/select"
 import { formatCurrency, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import { isService } from "@/data/products"
 import { api, idempotencyHeaders } from "@/lib/api"
 import { useCategoriesStore } from "@/store/categoriesStore"
 import { useUnitsStore } from "@/store/unitsStore"
@@ -49,15 +48,8 @@ import { useProductsStore } from "@/store/productsStore"
 import type { Unit, Category } from "@/types/settings"
 import type { Product } from "@/types/product"
 
-function productType(category: string): Product["type"] {
-  if (category === "Serviços") return "service"
-  if (category === "Matéria-Prima") return "raw_material"
-  if (category === "Embalagem") return "packaging"
-  return "finished_product"
-}
-
 function StockCell({ product }: { product: Product }) {
-  if (isService(product.category)) {
+  if (product.type === "service") {
     return <span className="text-[14px] text-(--color-text-secondary)">Sob demanda</span>
   }
   const dotClass =
@@ -93,6 +85,7 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
 const PER_PAGE = 10
 
 interface ProductForm {
+  type: Product["type"]
   name: string
   description: string
   barcode: string
@@ -106,6 +99,7 @@ interface ProductForm {
 }
 
 const EMPTY_FORM: ProductForm = {
+  type: "finished_product",
   name: "",
   description: "",
   barcode: "",
@@ -152,7 +146,7 @@ export default function InventarioPage() {
   const [form, setForm] = useState<ProductForm>(EMPTY_FORM)
 
   // Serviços ficam fora das métricas de estoque (não têm itens armazenados).
-  const stockControlled = products.filter((p) => !isService(p.category))
+  const stockControlled = products.filter((p) => p.type !== "service")
   const totalItems = stockControlled.reduce((sum, p) => sum + p.stock, 0)
   const totalValue = stockControlled.reduce((sum, p) => sum + p.stock * p.price, 0)
   const lowStockCount = products.filter((p) => p.status === "Baixo estoque").length
@@ -179,6 +173,7 @@ export default function InventarioPage() {
   function openEdit(product: Product) {
     setSelectedProduct(product)
     setForm({
+      type: product.type,
       name: product.name,
       description: product.description,
       barcode: product.barcode,
@@ -204,7 +199,7 @@ export default function InventarioPage() {
   }
 
   async function handleAdd() {
-    const service = isService(form.category)
+    const service = form.type === "service"
     const stock = service ? 0 : Number(form.stock) || 0
     const minStock = service ? 0 : Number(form.minStock) || 0
     const category = categories.find((item) => item.name === form.category)
@@ -213,7 +208,7 @@ export default function InventarioPage() {
     const created = await api.post("products", {
       json: {
         barcode: form.barcode || null,
-        type: productType(form.category),
+        type: form.type,
         name: form.name,
         description: form.description,
         active: form.active,
@@ -246,7 +241,7 @@ export default function InventarioPage() {
 
   async function handleEdit() {
     if (!selectedProduct) return
-    const service = isService(form.category)
+    const service = selectedProduct.type === "service"
     const stock = service ? 0 : Number(form.stock) || 0
     const minStock = service ? 0 : Number(form.minStock) || 0
     const category = categories.find((item) => item.name === form.category)
@@ -256,7 +251,6 @@ export default function InventarioPage() {
       json: {
         version: selectedProduct.version,
         barcode: form.barcode || null,
-        type: selectedProduct.type,
         name: form.name,
         description: form.description,
         active: form.active,
@@ -478,7 +472,13 @@ export default function InventarioPage() {
           <DialogHeader>
             <DialogTitle>Editar Produto</DialogTitle>
           </DialogHeader>
-          <ProductFormFields form={form} onChange={setForm} categories={categories} units={units} />
+          <ProductFormFields
+            form={form}
+            onChange={setForm}
+            categories={categories}
+            units={units}
+            typeLocked
+          />
           <DialogFooter showCloseButton={false} className="sm:justify-between">
             <Button
               type="button"
@@ -531,7 +531,7 @@ export default function InventarioPage() {
                 <span className="text-(--color-text-secondary)">Estoque</span>
                 <StockCell product={selectedProduct} />
               </div>
-              {!isService(selectedProduct.category) && (
+              {selectedProduct.type !== "service" && (
                 <div className="flex items-center justify-between">
                   <span className="text-(--color-text-secondary)">Estoque mínimo</span>
                   <span>{selectedProduct.minStock} {selectedProduct.unit}</span>
@@ -593,13 +593,15 @@ function ProductFormFields({
   onChange,
   categories,
   units,
+  typeLocked = false,
 }: {
   form: ProductForm
   onChange: (f: ProductForm) => void
   categories: Category[]
   units: Unit[]
+  typeLocked?: boolean
 }) {
-  const service = isService(form.category)
+  const service = form.type === "service"
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-col gap-1.5">
@@ -619,6 +621,24 @@ function ProductFormFields({
           value={form.description}
           onChange={(e) => onChange({ ...form, description: e.target.value })}
         />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="product-type">Tipo</Label>
+        <Select
+          value={form.type}
+          disabled={typeLocked}
+          onValueChange={(value) => onChange({ ...form, type: value as Product["type"] })}
+        >
+          <SelectTrigger id="product-type" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="finished_product">Produto acabado</SelectItem>
+            <SelectItem value="raw_material">Matéria-prima</SelectItem>
+            <SelectItem value="packaging">Embalagem</SelectItem>
+            <SelectItem value="service">Serviço</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="product-barcode">Código de barras (opcional)</Label>

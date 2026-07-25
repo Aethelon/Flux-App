@@ -2,22 +2,18 @@
 
 import { useEffect, useState } from "react"
 import { Download, Eye, X, QrCode, CreditCard, Banknote } from "lucide-react"
+import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
-import { MiniLine } from "@/components/shared/MiniLine"
 import { Button } from "@/components/ui/button"
 import { formatCurrency } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { HistoryEntry } from "@/types/history"
 import { describePayment, type PaymentKind } from "@/types/payment"
 import { useUserStore } from "@/store/userStore"
-import {
-  INITIAL_HISTORY,
-  entryTotal,
-  revenueByType,
-  REVENUE_TREND,
-  TREND_LABELS,
-} from "@/data/history"
+import { entryTotal, useHistoryStore } from "@/store/historyStore"
+import { useClientsStore } from "@/store/clientsStore"
+import { api, idempotencyHeaders } from "@/lib/api"
 
 const TABS = [
   { value: "produto", label: "Produtos" },
@@ -32,28 +28,27 @@ const PAYMENT_ICONS: Record<PaymentKind, typeof QrCode> = {
 
 const PER_PAGE = 10
 
-// Série de 6 pontos por tipo: os 5 meses mock anteriores + o acumulado atual.
-function trendPoints(kind: "produto" | "servico", current: number) {
-  return [...REVENUE_TREND[kind], current].map((value, i) => ({
-    label: TREND_LABELS[i],
-    value,
-    display: formatCurrency(value),
-    highlight: i === TREND_LABELS.length - 1,
-  }))
-}
-
 export default function HistoricoPage() {
   const isAdmin = useUserStore((s) => s.user?.role === "admin")
-  const [history] = useState<HistoryEntry[]>(INITIAL_HISTORY)
+  const history = useHistoryStore((state) => state.history)
+  const loadHistory = useHistoryStore((state) => state.loadHistory)
+  const kpis = useHistoryStore((state) => state.kpis)
+  const loadClients = useClientsStore((state) => state.loadClients)
   const [tab, setTab] = useState("produto")
   const [page, setPage] = useState(1)
   const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null)
   const [panelVisible, setPanelVisible] = useState(false)
+  const [exporting, setExporting] = useState(false)
+
+  useEffect(() => {
+    void loadClients()
+      .then(() => loadHistory(isAdmin))
+      .catch(() => toast.error("Não foi possível carregar o histórico."))
+  }, [isAdmin, loadClients, loadHistory])
 
   // Filtro por item: uma venda mista (produto + serviço) aparece nas duas abas.
   const filtered = history.filter((h) => h.items.some((i) => i.type === tab))
 
-  const revenue = revenueByType(history)
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   useEffect(() => {
@@ -74,8 +69,43 @@ export default function HistoricoPage() {
     setPanelVisible(false)
   }
 
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const created = await api.post("exports", {
+        headers: idempotencyHeaders(),
+        json: { source: "sales_history" },
+      }).json<{ id: string }>()
+      let completed = false
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const job = await api.get(`exports/${created.id}`).json<{
+          status: "pending" | "processing" | "completed" | "failed"
+        }>()
+        if (job.status === "failed") throw new Error("Export failed")
+        if (job.status === "completed") {
+          completed = true
+          break
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1_000))
+      }
+      if (!completed) throw new Error("Export timed out")
+      const blob = await api.get(`exports/${created.id}/download`).blob()
+      const href = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = href
+      link.download = `historico-vendas-${new Date().toISOString().slice(0, 10)}.csv`
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(href), 0)
+      toast.success("Histórico exportado.")
+    } catch {
+      toast.error("Não foi possível exportar o histórico.")
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const subtotal = selectedEntry ? selectedEntry.items.reduce((sum, i) => sum + i.total, 0) : 0
-  const total = subtotal - (selectedEntry?.discount ?? 0)
+  const total = selectedEntry?.netTotal ?? 0
 
   const columns: Column<HistoryEntry>[] = [
     {
@@ -123,14 +153,12 @@ export default function HistoricoPage() {
 
       {isAdmin && (
         <div className="grid grid-cols-2 gap-4 mb-8">
-          {(
-            [
-              { label: "Faturamento em Produtos", kind: "produto" },
-              { label: "Faturamento em Serviços", kind: "servico" },
-            ] as const
-          ).map(({ label, kind }) => (
+          {[
+            { label: "Faturamento Líquido", value: (kpis?.netRevenueCents ?? 0) / 100 },
+            { label: "Ticket Médio", value: (kpis?.averageTicketCents ?? 0) / 100 },
+          ].map(({ label, value }) => (
             <div
-              key={kind}
+              key={label}
               className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-6"
             >
               <div className="flex flex-col gap-1">
@@ -138,10 +166,12 @@ export default function HistoricoPage() {
                   {label}
                 </span>
                 <span className="text-[24px] font-semibold leading-9 tracking-[-0.48px] text-(--color-text-primary) font-(family-name:--font-data)">
-                  {formatCurrency(revenue[kind])}
+                  {formatCurrency(value)}
                 </span>
               </div>
-              <MiniLine data={trendPoints(kind, revenue[kind])} />
+              <span className="text-[12px] text-(--color-text-secondary)">
+                Calculado e versionado pelo backend.
+              </span>
             </div>
           ))}
         </div>
@@ -161,9 +191,11 @@ export default function HistoricoPage() {
                 variant="outline"
                 size="sm"
                 className="gap-2 text-(--color-text-secondary) border-(--color-border)"
+                disabled={exporting}
+                onClick={handleExport}
               >
                 <Download size={14} />
-                Exportar
+                {exporting ? "Exportando..." : "Exportar"}
               </Button>
             }
             pagination={{
@@ -232,6 +264,14 @@ export default function HistoricoPage() {
                     <span className="text-(--color-text-secondary)">Desconto</span>
                     <span className="text-(--color-danger)">
                       -{formatCurrency(selectedEntry.discount)}
+                    </span>
+                  </div>
+                )}
+                {selectedEntry.returnedAmount > 0 && (
+                  <div className="flex items-center justify-between text-[13px]">
+                    <span className="text-(--color-text-secondary)">Devoluções</span>
+                    <span className="text-(--color-danger)">
+                      -{formatCurrency(selectedEntry.returnedAmount)}
                     </span>
                   </div>
                 )}

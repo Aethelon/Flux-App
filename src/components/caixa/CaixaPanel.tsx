@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Lock,
   Unlock,
@@ -76,6 +76,9 @@ const TIPO_CONFIG: Record <
   sangria: { label: "Sangria", icon: ArrowDownCircle, tone: "danger" },
   suprimento: { label: "Suprimento", icon: ArrowUpCircle, tone: "success" },
   venda: { label: "Venda", icon: ShoppingCart, tone: "accent" },
+  estorno: { label: "Estorno", icon: ArrowDownCircle, tone: "danger" },
+  devolucao: { label: "Devolução", icon: ArrowDownCircle, tone: "danger" },
+  ajuste: { label: "Ajuste", icon: Wallet, tone: "neutral" },
 }
 
 function TipoBadge({ tipo }: { tipo: MovimentacaoTipo | "abertura" }) {
@@ -107,17 +110,26 @@ export function AbrirCaixaDialog({
   const operador = useOperadorLogado()
   const abrirCaixa = useCaixaStore((s) => s.abrirCaixa)
   const [valor, setValor] = useState("")
+  const [submitting, setSubmitting] = useState(false)
 
-  function handleConfirm() {
+  async function handleConfirm() {
+    if (submitting) return
     const parsed = parsePriceInput(valor)
     if (parsed < 0) {
       toast.error("Informe um valor de abertura válido.")
       return
     }
-    abrirCaixa(operador, parsed)
-    toast.success(`Caixa aberto com ${formatCurrency(parsed)} de fundo de troco.`)
-    setValor("")
-    onOpenChange(false)
+    setSubmitting(true)
+    try {
+      await abrirCaixa(operador, parsed)
+      toast.success(`Caixa aberto com ${formatCurrency(parsed)} de fundo de troco.`)
+      setValor("")
+      onOpenChange(false)
+    } catch {
+      toast.error("Não foi possível abrir o caixa.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -144,7 +156,9 @@ export function AbrirCaixaDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleConfirm}>Abrir caixa</Button>
+          <Button onClick={handleConfirm} disabled={submitting}>
+            {submitting ? "Abrindo..." : "Abrir caixa"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -230,9 +244,11 @@ function MovimentacaoDialog({
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
   const [valor, setValor] = useState("")
   const [motivo, setMotivo] = useState("")
+  const [submitting, setSubmitting] = useState(false)
   const label = tipo === "sangria" ? "Sangria" : "Suprimento"
 
-  function handleConfirm() {
+  async function handleConfirm() {
+    if (submitting) return
     const parsed = parsePriceInput(valor)
     if (parsed <= 0) {
       toast.error("Informe um valor maior que zero.")
@@ -249,11 +265,18 @@ function MovimentacaoDialog({
       toast.error("Informe o motivo.")
       return
     }
-    registrarMovimentacao(tipo, parsed, motivo.trim(), operador)
-    toast.success(`${label} de ${formatCurrency(parsed)} registrada.`)
-    setValor("")
-    setMotivo("")
-    onOpenChange(false)
+    setSubmitting(true)
+    try {
+      await registrarMovimentacao(tipo, parsed, motivo.trim(), operador)
+      toast.success(`${label} de ${formatCurrency(parsed)} registrada.`)
+      setValor("")
+      setMotivo("")
+      onOpenChange(false)
+    } catch {
+      toast.error(`Não foi possível registrar a ${label.toLowerCase()}.`)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -290,7 +313,9 @@ function MovimentacaoDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleConfirm}>Confirmar {label.toLowerCase()}</Button>
+          <Button onClick={handleConfirm} disabled={submitting}>
+            {submitting ? "Registrando..." : `Confirmar ${label.toLowerCase()}`}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -412,6 +437,7 @@ export function FecharCaixaDialog({
     cartao_debito: "",
     pix: "",
   })
+  const [submitting, setSubmitting] = useState(false)
 
   if (!sessao) return null
 
@@ -421,7 +447,8 @@ export function FecharCaixaDialog({
     setValores((prev) => ({ ...prev, [chave]: valor.replace(/[^\d.,]/g, "") }))
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
+    if (submitting) return
     const valoresInformados = Object.values(valores)
     if (!valoresInformados.some((valor) => /\d/.test(valor))) {
       toast.error("Informe ao menos um valor para fechar o caixa.")
@@ -446,16 +473,23 @@ export function FecharCaixaDialog({
       return { metodo, esperado, informado, diferenca: informado - esperado }
     })
 
-    fecharCaixa(operador, totalContado, informadoPorMetodo)
-    onFechamentoConfirmado?.({
-      sistema: sistemaCalculado,
-      informado: totalContado,
-      diferenca,
-      porMetodo,
-    })
-    toast.success("Caixa fechado com sucesso.")
-    setValores({ dinheiro: "", cartao_credito: "", cartao_debito: "", pix: "" })
-    onOpenChange(false)
+    setSubmitting(true)
+    try {
+      await fecharCaixa(operador, totalContado, informadoPorMetodo)
+      onFechamentoConfirmado?.({
+        sistema: sistemaCalculado,
+        informado: totalContado,
+        diferenca,
+        porMetodo,
+      })
+      toast.success("Caixa fechado com sucesso.")
+      setValores({ dinheiro: "", cartao_credito: "", cartao_debito: "", pix: "" })
+      onOpenChange(false)
+    } catch {
+      toast.error("Não foi possível fechar o caixa.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -495,7 +529,9 @@ export function FecharCaixaDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleConfirm}>Fechar caixa</Button>
+          <Button onClick={handleConfirm} disabled={submitting}>
+            {submitting ? "Fechando..." : "Fechar caixa"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -635,6 +671,7 @@ export function CaixaPanel() {
   const isAdmin = useUserStore((s) => s.user?.role === "admin")
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
   const historico = useCaixaStore((s) => s.historico)
+  const loadCash = useCaixaStore((s) => s.loadCash)
   const getMovimentacoesDaSessao = useCaixaStore((s) => s.getMovimentacoesDaSessao)
 
   const [abrirOpen, setAbrirOpen] = useState(false)
@@ -642,6 +679,10 @@ export function CaixaPanel() {
   const [fecharOpen, setFecharOpen] = useState(false)
   const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
   const [sessaoConferencia, setSessaoConferencia] = useState<CaixaSessao | null>(null)
+
+  useEffect(() => {
+    void loadCash(isAdmin).catch(() => toast.error("Não foi possível carregar o caixa."))
+  }, [isAdmin, loadCash])
 
   const colunasHistorico = criarColunasHistorico(setSessaoConferencia)
 

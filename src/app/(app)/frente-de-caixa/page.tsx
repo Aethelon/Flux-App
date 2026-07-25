@@ -32,14 +32,13 @@ import { ClientCombobox } from "@/components/shared/ClientCombobox"
 import { formatCurrency, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { describePayment, type Payment } from "@/types/payment"
-import type { SaleInput } from "@/types/history"
-import { isService } from "@/data/products"
-import { INITIAL_ORDERS, CLOSED_COLUMN_IDS } from "@/data/orders"
 import type { Product } from "@/types/product"
 import type { Order } from "@/types/order"
 import { useCaixaStore } from "@/store/caixaStore"
-import { useUserStore } from "@/store/userStore"
 import { useProductsStore } from "@/store/productsStore"
+import { useOrdersStore } from "@/store/ordersStore"
+import { useClientsStore } from "@/store/clientsStore"
+import { api, idempotencyHeaders } from "@/lib/api"
 import {
   AbrirCaixaDialog,
   FecharCaixaDialog,
@@ -50,13 +49,6 @@ import {
 // "Ordens" entra como uma categoria à parte no fim da lista: são ordens de
 // serviço ainda em aberto (não encerradas) que podem ser cobradas no balcão.
 const ORDERS_CATEGORY = "Ordens"
-
-// Ordens vendáveis = tudo que ainda não está numa coluna encerrada
-// (concluído/cancelado). As concluídas já foram pagas na conclusão e vivem no
-// Histórico, então não reaparecem aqui para evitar cobrança em dobro.
-const SELLABLE_ORDERS = INITIAL_ORDERS.filter(
-  (o) => !CLOSED_COLUMN_IDS.includes(o.columnId)
-)
 
 // Formas de pagamento distintas — crédito e débito são chaves separadas para
 // que o passo de pagamento não precise de um sub-seletor de tipo de cartão.
@@ -117,7 +109,7 @@ function ProductCard({
   onRemove: () => void
 }) {
   // Serviço não controla estoque: sempre disponível e sem limite de quantidade.
-  const service = isService(product.category)
+  const service = product.type === "service"
   const soldOut = !service && product.stock <= 0
   const maxed = !service && qty >= product.stock
 
@@ -329,24 +321,16 @@ export default function FrenteDeCaixaPage() {
   const [abrirCaixaOpen, setAbrirCaixaOpen] = useState(false)
   const [fecharCaixaOpen, setFecharCaixaOpen] = useState(false)
   const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
-  // Próximo número da sequência única de pedidos. A sequência é persistida
-  // no navegador para continuar crescente mesmo após recarregar a tela.
-  const [orderNumber, setOrderNumber] = useState(1)
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem("flux-order-number")
-    const parsed = Number(saved)
-    if (!Number.isFinite(parsed) || parsed <= 0) return
-    const timer = window.setTimeout(() => setOrderNumber(parsed), 0)
-    return () => window.clearTimeout(timer)
-  }, [])
-
+  const [checkoutPending, setCheckoutPending] = useState(false)
   const caixaAberto = useCaixaStore((s) => s.sessaoAtual !== null)
-  const registrarVenda = useCaixaStore((s) => s.registrarVenda)
-  const user = useUserStore((s) => s.user)
-  const operador = user?.name ?? "Operador"
+  const loadCash = useCaixaStore((s) => s.loadCash)
   const products = useProductsStore((state) => state.products)
   const loadProducts = useProductsStore((state) => state.loadProducts)
+  const orders = useOrdersStore((state) => state.orders)
+  const loadOrders = useOrdersStore((state) => state.loadOrders)
+  const clients = useClientsStore((state) => state.clients)
+  const loadClients = useClientsStore((state) => state.loadClients)
+  const SELLABLE_ORDERS = orders.filter((order) => order.status === "open")
   const CATALOG = products.filter((product) =>
     product.active && product.type !== "raw_material"
   )
@@ -357,10 +341,10 @@ export default function FrenteDeCaixaPage() {
   ]
 
   useEffect(() => {
-    void loadProducts().catch(() => {
+    void Promise.all([loadProducts(), loadOrders(), loadClients(), loadCash()]).catch(() => {
       toast.error("Não foi possível carregar o catálogo.")
     })
-  }, [loadProducts])
+  }, [loadCash, loadClients, loadOrders, loadProducts])
 
   useEffect(() => {
     const timer = window.setTimeout(() => searchInputRef.current?.focus(), 50)
@@ -397,7 +381,7 @@ export default function FrenteDeCaixaPage() {
     name: p.name,
     qty: cart[p.id],
     lineTotal: p.price * cart[p.id],
-    type: isService(p.category) ? "servico" : "produto",
+    type: p.type === "service" ? "servico" : "produto",
   }))
 
   const orderLines: CartLine[] = SELLABLE_ORDERS.filter((o) =>
@@ -476,7 +460,7 @@ export default function FrenteDeCaixaPage() {
     editingCart()
     setCart((prev) => {
       const current = prev[id] ?? 0
-      if (!isService(product.category) && current >= product.stock) return prev
+      if (product.type !== "service" && current >= product.stock) return prev
       return { ...prev, [id]: current + 1 }
     })
     setSearch("")
@@ -634,8 +618,9 @@ export default function FrenteDeCaixaPage() {
     setStep(2)
   }
 
-  function handleCheckout() {
-    if (!caixaAberto || cartLines.length === 0 || !fullyCovered) return
+  async function handleCheckout() {
+    if (!caixaAberto || cartLines.length === 0 || !fullyCovered || checkoutPending) return
+    setCheckoutPending(true)
     // Detalhamento final do pagamento — este é o Payment[] que fica registrado no Histórico.
     const resolved: Payment[] = payments.map((e): Payment => {
       if (e.methodKey === "cartao_credito") {
@@ -651,36 +636,44 @@ export default function FrenteDeCaixaPage() {
       }
       return { kind: e.methodKey, amount: effectiveAmount(e) }
     })
-    // Corpo completo da venda (cliente, itens com tipo, desconto e pagamentos) —
-    // é o que futuramente será enviado ao backend (POST /vendas) e vira o
-    // registro correspondente no Histórico.
-    const sale: SaleInput = {
-      orderNumber,
-      clientName: client,
-      items: cartLines.map((i) => ({
-        name: i.name,
-        quantity: i.qty,
-        total: i.lineTotal,
-        type: i.type,
-      })),
-      discount: discountValue,
-      payments: resolved,
-      change: change > 0 ? change : undefined,
+    const customerId = clients.find((customer) => customer.name === client)?.id
+    try {
+      const sale = await api.post("sales", {
+        headers: idempotencyHeaders(),
+        json: {
+          customerId: customerId ?? null,
+          discountAmountCents: Math.round(discountValue * 100),
+          changeAmountCents: Math.round(change * 100),
+          items: cartLines.map((item) => item.source === "product"
+            ? { productId: item.refId, quantity: item.qty }
+            : { serviceOrderId: item.refId }),
+          payments: payments.map((payment) => ({
+            method: payment.methodKey === "dinheiro"
+              ? "cash"
+              : payment.methodKey === "cartao_credito"
+                ? "credit"
+                : payment.methodKey === "cartao_debito"
+                  ? "debit"
+                  : "pix",
+            amountCents: Math.round(effectiveAmount(payment) * 100),
+            ...(payment.methodKey === "cartao_credito"
+              ? { installments: payment.installments ?? 1 }
+              : {}),
+          })),
+        },
+      }).json<{ businessNumber: number }>()
+      const methodsLabel = resolved.map(describePayment).join(" + ")
+      const changeText = change > 0 ? ` · Troco ${formatCurrency(change)}` : ""
+      toast.success(
+        `Pedido Nº${sale.businessNumber} finalizado${client ? ` para ${client}` : ""} — ${formatCurrency(total)} em ${methodsLabel}${changeText}.`
+      )
+      await Promise.all([loadProducts(), loadOrders(), loadCash()])
+      clearOrder()
+    } catch {
+      toast.error("Não foi possível finalizar a venda.")
+    } finally {
+      setCheckoutPending(false)
     }
-    const methodsLabel = sale.payments.map(describePayment).join(" + ")
-    const changeText = change > 0 ? ` · Troco ${formatCurrency(change)}` : ""
-    toast.success(
-      `Pedido Nº${sale.orderNumber} finalizado${sale.clientName ? ` para ${sale.clientName}` : ""} — ${formatCurrency(total)} em ${methodsLabel}${changeText}.`
-    )
-    // Toda venda finalizada gera uma movimentação no caixa para o turno,
-    // independentemente do método de pagamento usado.
-    registrarVenda(total, sale.orderNumber, operador, methodsLabel, resolved)
-    const nextOrderNumber = orderNumber + 1
-    setOrderNumber(nextOrderNumber)
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("flux-order-number", String(nextOrderNumber))
-    }
-    clearOrder()
   }
 
   // Atalho de teclado F2: avança para pagamento no passo 1, ou finaliza a
@@ -691,7 +684,7 @@ export default function FrenteDeCaixaPage() {
         event.preventDefault()
         if (step === 1) {
           goToPayment()
-        } else if (fullyCovered) {
+        } else if (fullyCovered && !checkoutPending) {
           handleCheckout()
         }
       }
@@ -832,7 +825,7 @@ export default function FrenteDeCaixaPage() {
         <aside className="flex min-h-0 flex-col gap-4 rounded-2xl border border-(--color-border) bg-(--color-surface) p-5">
           <div className="flex shrink-0 items-center justify-between">
             <h2 className="text-[18px] font-semibold text-(--color-text-primary)">
-              Pedido Nº{orderNumber}
+              Novo pedido
             </h2>
             <div className="flex items-center gap-1">
               {caixaAberto && (
@@ -1222,13 +1215,13 @@ export default function FrenteDeCaixaPage() {
               </Button>
               <Button
                 onClick={handleCheckout}
-                disabled={!fullyCovered}
+                disabled={!fullyCovered || checkoutPending}
                 className="h-12 flex-1 justify-center gap-1.5 rounded-2xl bg-(--color-accent) text-[15px] font-semibold text-white"
                 title="Atalho: F2"
               >
                 <Wallet size={16} />
                 <span className="flex items-center gap-2">
-                  <span>Finalizar — {formatCurrency(total)}</span>
+                  <span>{checkoutPending ? "Finalizando..." : `Finalizar — ${formatCurrency(total)}`}</span>
                   <span className="inline-flex items-center rounded-full border border-white/30 bg-white/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
                     F2
                   </span>

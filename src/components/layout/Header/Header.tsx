@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Lock, Unlock } from "lucide-react"
 import { SearchBar } from "./SearchBar"
 import { DarkModeToggle } from "./DarkModeToggle"
@@ -21,9 +21,14 @@ import {
 // confirmado, para o operador ver o resumo antes de seguir.
 function CaixaStatusButton() {
   const caixaAberto = useCaixaStore((s) => s.sessaoAtual !== null)
+  const loadCash = useCaixaStore((s) => s.loadCash)
   const [abrirOpen, setAbrirOpen] = useState(false)
   const [fecharOpen, setFecharOpen] = useState(false)
   const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
+
+  useEffect(() => {
+    void loadCash()
+  }, [loadCash])
 
   return (
     <>

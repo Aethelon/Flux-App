@@ -1,77 +1,135 @@
 import { create } from "zustand"
-import { persist } from "zustand/middleware"
+import { HTTPError } from "ky"
+import { api, idempotencyHeaders } from "@/lib/api"
 import type {
   CaixaSessao,
   MetodoPagamento,
   Movimentacao,
   MovimentacaoManual,
 } from "@/types/caixa"
-import { describePayment, type Payment } from "@/types/payment"
 
-function gerarId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
+type ApiPaymentMethod = "cash" | "credit" | "debit" | "pix"
+
+interface ApiCashSession {
+  id: string
+  openingOperator: { id: string; name: string }
+  openedAt: string
+  openingAmountCents: number
+  status: "open" | "closed"
+  closingOperator: { id: string; name: string } | null
+  closedAt: string | null
+  version: number
+  expectedByMethod: Record<ApiPaymentMethod, number>
+  closeCounts: Array<{
+    paymentMethod: ApiPaymentMethod
+    countedAmountCents: number
+  }>
+  movements: Array<{
+    id: string
+    type: "opening" | "sale" | "sale_reversal" | "return" | "supply" | "withdrawal" | "closing_adjustment"
+    paymentMethod: ApiPaymentMethod
+    amountCents: number
+    reason: string
+    actor: { id: string; name: string }
+    occurredAt: string
+    sourceType: string
+    sourceId: string | null
+  }>
+}
+
+interface MyRegister {
+  session: ApiCashSession | null
+}
+
+const methodFromApi: Record<ApiPaymentMethod, MetodoPagamento> = {
+  cash: "dinheiro",
+  credit: "cartao_credito",
+  debit: "cartao_debito",
+  pix: "pix",
+}
+
+function movementType(type: ApiCashSession["movements"][number]["type"]): Movimentacao["tipo"] {
+  if (type === "supply") return "suprimento"
+  if (type === "withdrawal") return "sangria"
+  if (type === "sale_reversal") return "estorno"
+  if (type === "return") return "devolucao"
+  if (type === "closing_adjustment") return "ajuste"
+  return "venda"
+}
+
+function mapSession(session: ApiCashSession): CaixaSessao {
+  const counted = session.closeCounts.length > 0
+    ? session.closeCounts.reduce((total, count) => total + count.countedAmountCents, 0) / 100
+    : undefined
+  const countedByMethod = session.closeCounts.length > 0
+    ? session.closeCounts.reduce((result, count) => {
+        result[methodFromApi[count.paymentMethod]] = count.countedAmountCents / 100
+        return result
+      }, {
+        dinheiro: 0,
+        cartao_credito: 0,
+        cartao_debito: 0,
+        pix: 0,
+      } as Record<MetodoPagamento, number>)
+    : undefined
+
+  return {
+    id: session.id,
+    status: session.status === "open" ? "aberto" : "fechado",
+    operadorAbertura: session.openingOperator.name,
+    valorAbertura: session.openingAmountCents / 100,
+    abertoEm: session.openedAt,
+    version: session.version,
+    esperadoPorMetodo: {
+      dinheiro: session.expectedByMethod.cash / 100,
+      cartao_credito: session.expectedByMethod.credit / 100,
+      cartao_debito: session.expectedByMethod.debit / 100,
+      pix: session.expectedByMethod.pix / 100,
+    },
+    movimentacoes: session.movements
+      .filter((movement) => movement.type !== "opening")
+      .map((movement) => ({
+        id: movement.id,
+        sessaoId: session.id,
+        tipo: movementType(movement.type),
+        valor: movement.amountCents / 100,
+        motivo: movement.reason,
+        operador: movement.actor.name,
+        criadoEm: movement.occurredAt,
+        metodo: methodFromApi[movement.paymentMethod],
+      })),
+    ...(session.closingOperator ? { operadorFechamento: session.closingOperator.name } : {}),
+    ...(counted !== undefined ? { valorContado: counted } : {}),
+    ...(countedByMethod ? { valorContadoPorMetodo: countedByMethod } : {}),
+    ...(session.closedAt ? { fechadoEm: session.closedAt } : {}),
   }
-  return Math.random().toString(36).slice(2)
 }
 
-// Traduz a forma de pagamento de uma venda (Payment, vinda da Frente de
-// Caixa) para o MetodoPagamento usado nas movimentações do caixa. Cartão
-// crédito e débito são distinguidos pelo `cardType` do pagamento.
-function metodoFromPagamento(pagamento: Pick<Payment, "kind" | "cardType">): MetodoPagamento {
-  if (pagamento.kind === "cartao") {
-    return pagamento.cardType === "credito" ? "cartao_credito" : "cartao_debito"
-  }
-  return pagamento.kind
-}
-
-// Regra de negócio: valor esperado = valor de abertura + suprimentos + vendas
-// por todos os métodos − sangrias.
-//
-// Cada parcela da venda entra como uma Movimentacao do tipo "venda", registrada
-// pela Frente de Caixa no momento do checkout (registrarVenda).
-export function calcularValorEsperado(sessao: CaixaSessao): number {
-  const entradas = sessao.movimentacoes
-    .filter((m) => m.tipo === "suprimento" || m.tipo === "venda")
-    .reduce((soma, m) => soma + m.valor, 0)
-  const sangrias = sessao.movimentacoes
-    .filter((m) => m.tipo === "sangria")
-    .reduce((soma, m) => soma + m.valor, 0)
-  return sessao.valorAbertura + entradas - sangrias
-}
-
-// Mesmo total de calcularValorEsperado, mas quebrado por forma de pagamento —
-// usado na conferência do fechamento de caixa. Sangria e suprimento só afetam
-// dinheiro físico na gaveta, então entram apenas no método "dinheiro"; cartão
-// crédito, cartão débito e pix são a soma das vendas registradas em cada um.
 export function calcularEsperadoPorMetodo(sessao: CaixaSessao): Record<MetodoPagamento, number> {
+  if (sessao.esperadoPorMetodo) return sessao.esperadoPorMetodo
+
   const porMetodo: Record<MetodoPagamento, number> = {
     dinheiro: sessao.valorAbertura,
     cartao_credito: 0,
     cartao_debito: 0,
     pix: 0,
   }
-
-  sessao.movimentacoes.forEach((m) => {
-    if (m.tipo === "venda") {
-      const metodo = m.metodo ?? "dinheiro"
-      porMetodo[metodo] += m.valor
-      return
-    }
-    if (m.tipo === "suprimento") {
-      porMetodo.dinheiro += m.valor
-      return
-    }
-    if (m.tipo === "sangria") {
-      porMetodo.dinheiro -= m.valor
-    }
+  sessao.movimentacoes.forEach((movimentacao) => {
+    const metodo = movimentacao.metodo ?? "dinheiro"
+    const sinal = movimentacao.tipo === "sangria"
+      || movimentacao.tipo === "estorno"
+      || movimentacao.tipo === "devolucao"
+      ? -1
+      : 1
+    porMetodo[metodo] += sinal * movimentacao.valor
   })
-
   return porMetodo
 }
 
-// Diferença entre o que foi contado fisicamente e o esperado.
-// Positivo = sobra. Negativo = falta. Só faz sentido após o fechamento.
+export function calcularValorEsperado(sessao: CaixaSessao): number {
+  return Object.values(calcularEsperadoPorMetodo(sessao)).reduce((total, value) => total + value, 0)
+}
+
 export function calcularDiferenca(sessao: CaixaSessao): number {
   if (sessao.valorContado === undefined) return 0
   return sessao.valorContado - calcularValorEsperado(sessao)
@@ -80,184 +138,87 @@ export function calcularDiferenca(sessao: CaixaSessao): number {
 interface CaixaState {
   sessaoAtual: CaixaSessao | null
   historico: CaixaSessao[]
-  abrirCaixa: (operador: string, valorAbertura: number) => void
+  loadCash: (includeHistory?: boolean) => Promise<void>
+  abrirCaixa: (operador: string, valorAbertura: number) => Promise<void>
   registrarMovimentacao: (
     tipo: MovimentacaoManual,
     valor: number,
     motivo: string,
     operador: string
-  ) => void
-  registrarVenda: (
-    valor: number,
-    pedidoNumero: number,
-    operador: string,
-    motivo?: string,
-    pagamentos?: Payment[]
-  ) => void
+  ) => Promise<void>
   fecharCaixa: (
     operador: string,
     valorContado: number,
     valorContadoPorMetodo?: Record<MetodoPagamento, number>
-  ) => void
+  ) => Promise<void>
   getMovimentacoesDaSessao: (sessaoId: string) => Movimentacao[]
 }
 
-export const useCaixaStore = create<CaixaState>()(
-  persist(
-    (set, get) => ({
+export const useCaixaStore = create<CaixaState>((set, get) => ({
+  sessaoAtual: null,
+  historico: [],
+  loadCash: async (includeHistory = false) => {
+    try {
+      const current = await api.get("cash-registers/me").json<MyRegister>()
+      set({ sessaoAtual: current.session ? mapSession(current.session) : null })
+    } catch (error) {
+      if (!(error instanceof HTTPError) || error.response.status !== 404) throw error
+      set({ sessaoAtual: null })
+    }
+
+    if (!includeHistory) return
+    try {
+      const response = await api.get("cash-sessions", {
+        searchParams: { pageSize: 100 },
+      }).json<{ data: ApiCashSession[] }>()
+      set({ historico: response.data.filter((session) => session.status === "closed").map(mapSession) })
+    } catch (error) {
+      if (!(error instanceof HTTPError) || error.response.status !== 403) throw error
+      set({ historico: [] })
+    }
+  },
+  abrirCaixa: async (_operador, valorAbertura) => {
+    const session = await api.post("cash-registers/me/open", {
+      headers: idempotencyHeaders(),
+      json: { openingAmountCents: Math.round(valorAbertura * 100) },
+    }).json<ApiCashSession>()
+    set({ sessaoAtual: mapSession(session) })
+  },
+  registrarMovimentacao: async (tipo, valor, motivo) => {
+    const operation = tipo === "suprimento" ? "supplies" : "withdrawals"
+    const session = await api.post(`cash-registers/me/${operation}`, {
+      headers: idempotencyHeaders(),
+      json: {
+        amountCents: Math.round(valor * 100),
+        reason: motivo,
+      },
+    }).json<ApiCashSession>()
+    set({ sessaoAtual: mapSession(session) })
+  },
+  fecharCaixa: async (_operador, _valorContado, valorContadoPorMetodo) => {
+    const session = get().sessaoAtual
+    if (!session || !valorContadoPorMetodo) return
+    const closed = await api.post("cash-registers/me/close", {
+      headers: idempotencyHeaders(),
+      json: {
+        version: session.version,
+        countedByMethod: {
+          cash: Math.round(valorContadoPorMetodo.dinheiro * 100),
+          credit: Math.round(valorContadoPorMetodo.cartao_credito * 100),
+          debit: Math.round(valorContadoPorMetodo.cartao_debito * 100),
+          pix: Math.round(valorContadoPorMetodo.pix * 100),
+        },
+      },
+    }).json<ApiCashSession>()
+    set((state) => ({
       sessaoAtual: null,
-      historico: [],
-
-      abrirCaixa: (operador, valorAbertura) => {
-        // Guarda: só existe um caixa aberto por vez.
-        if (get().sessaoAtual) return
-        set({
-          sessaoAtual: {
-            id: gerarId(),
-            status: "aberto",
-            operadorAbertura: operador,
-            valorAbertura,
-            abertoEm: new Date().toISOString(),
-            movimentacoes: [],
-          },
-        })
-      },
-
-      registrarMovimentacao: (tipo, valor, motivo, operador) => {
-        const sessao = get().sessaoAtual
-        if (!sessao || valor <= 0) return
-        if (
-          tipo === "sangria" &&
-          valor > calcularEsperadoPorMetodo(sessao).dinheiro + 0.005
-        ) return
-        const movimentacao: Movimentacao = {
-          id: gerarId(),
-          sessaoId: sessao.id,
-          tipo,
-          valor,
-          motivo,
-          operador,
-          criadoEm: new Date().toISOString(),
-        }
-        set({
-          sessaoAtual: {
-            ...sessao,
-            movimentacoes: [movimentacao, ...sessao.movimentacoes],
-          },
-        })
-      },
-
-      // Chamada pela Frente de Caixa a cada checkout. Se a venda tiver múltiplas
-      // formas de pagamento, cada uma vira uma movimentação separada no caixa,
-      // com seu próprio `metodo` (dinheiro/cartão crédito/cartão débito/pix)
-      // para permitir a conferência por método no fechamento; o valor
-      // registrado nunca ultrapassa o valor da venda, excluindo troco.
-      registrarVenda: (valor, pedidoNumero, operador, motivo, pagamentos) => {
-        const sessao = get().sessaoAtual
-        if (!sessao || valor <= 0) return
-
-        const fallbackMotivo = motivo && motivo.trim() ? motivo : "Venda"
-        const pagamentosSanitizados =
-          pagamentos && pagamentos.length > 0
-            ? pagamentos.map((pagamento) => ({
-                ...pagamento,
-                amount: Math.max(0, pagamento.amount),
-              }))
-            : [{ kind: "dinheiro" as const, amount: valor }]
-
-        let trocoRestante = Math.max(
-          0,
-          pagamentosSanitizados.reduce((total, pagamento) => total + pagamento.amount, 0) - valor
-        )
-        const pagamentosParaRegistrar = pagamentosSanitizados.map((pagamento) => {
-          if (pagamento.kind !== "dinheiro" || trocoRestante <= 0) return pagamento
-
-          const trocoDestePagamento = Math.min(pagamento.amount, trocoRestante)
-          trocoRestante -= trocoDestePagamento
-          return { ...pagamento, amount: pagamento.amount - trocoDestePagamento }
-        })
-
-        let restante = valor
-        const movimentacoes: Movimentacao[] = []
-
-        pagamentosParaRegistrar.forEach((pagamento) => {
-          if (restante <= 0) return
-          const valorMovimentacao = Math.min(pagamento.amount, restante)
-          if (valorMovimentacao <= 0) return
-          restante -= valorMovimentacao
-
-          movimentacoes.push({
-            id: gerarId(),
-            sessaoId: sessao.id,
-            tipo: "venda",
-            valor: valorMovimentacao,
-            motivo: `Pedido Nº${pedidoNumero} · ${describePayment({
-              kind: pagamento.kind,
-              amount: valorMovimentacao,
-              cardType: pagamento.cardType,
-              installments: pagamento.installments,
-            })}`,
-            operador,
-            criadoEm: new Date().toISOString(),
-            pedidoNumero,
-            metodo: metodoFromPagamento(pagamento),
-          })
-        })
-
-        if (movimentacoes.length === 0) {
-          movimentacoes.push({
-            id: gerarId(),
-            sessaoId: sessao.id,
-            tipo: "venda",
-            valor,
-            motivo: fallbackMotivo,
-            operador,
-            criadoEm: new Date().toISOString(),
-            pedidoNumero,
-            metodo: "dinheiro",
-          })
-        }
-
-        set({
-          sessaoAtual: {
-            ...sessao,
-            movimentacoes: [...movimentacoes, ...sessao.movimentacoes],
-          },
-        })
-      },
-
-      fecharCaixa: (operador, valorContado, valorContadoPorMetodo) => {
-        const sessao = get().sessaoAtual
-        if (!sessao) return
-        const fechado: CaixaSessao = {
-          ...sessao,
-          status: "fechado",
-          operadorFechamento: operador,
-          valorContado,
-          valorContadoPorMetodo,
-          fechadoEm: new Date().toISOString(),
-        }
-        set((state) => ({
-          sessaoAtual: null,
-          historico: [fechado, ...state.historico],
-        }))
-      },
-
-      getMovimentacoesDaSessao: (sessaoId) => {
-        const sessaoAtual = get().sessaoAtual
-        const sessaoHistorica = get().historico.find((sessao) => sessao.id === sessaoId)
-
-        if (sessaoAtual?.id === sessaoId) {
-          return sessaoAtual.movimentacoes
-        }
-
-        if (sessaoHistorica) {
-          return sessaoHistorica.movimentacoes
-        }
-
-        return []
-      },
-    }),
-    { name: "flux-caixa" }
-  )
-)
+      historico: [mapSession(closed), ...state.historico.filter((item) => item.id !== closed.id)],
+    }))
+  },
+  getMovimentacoesDaSessao: (sessaoId) => {
+    const current = get().sessaoAtual
+    return current?.id === sessaoId
+      ? current.movimentacoes
+      : get().historico.find((session) => session.id === sessaoId)?.movimentacoes ?? []
+  },
+}))

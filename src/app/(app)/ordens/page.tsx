@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useSyncExternalStore } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom"
 import {
   DndContext,
@@ -68,8 +68,10 @@ import {
 import { formatCurrency, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { useFontSizeStore, FONT_SIZE_SCALE } from "@/store/fontSizeStore"
+import { useClientsStore } from "@/store/clientsStore"
+import { orderPriority, useOrdersStore } from "@/store/ordersStore"
+import { api, idempotencyHeaders } from "@/lib/api"
 import type { KanbanColumn, Order, OrderPriority } from "@/types/order"
-import { INITIAL_COLUMNS, INITIAL_ORDERS, visibleOrders } from "@/data/orders"
 
 const COLOR_OPTIONS = [
   { name: "Âmbar",    value: "--color-warning" },
@@ -121,9 +123,18 @@ const EMPTY_ORDER_FORM: OrderForm = {
 }
 
 export default function OrdensPage() {
-  const [columns, setColumns] = useState<KanbanColumn[]>(INITIAL_COLUMNS)
-  // Concluídas há mais de 2 dias ficam só no Histórico (arquivadas do board).
-  const [orders, setOrders] = useState<Order[]>(visibleOrders(INITIAL_ORDERS))
+  const columns = useOrdersStore((state) => state.columns)
+  const orders = useOrdersStore((state) => state.orders)
+  const setColumns = useOrdersStore((state) => state.setColumns)
+  const setOrders = useOrdersStore((state) => state.setOrders)
+  const loadOrders = useOrdersStore((state) => state.loadOrders)
+  const clients = useClientsStore((state) => state.clients)
+  const loadClients = useClientsStore((state) => state.loadClients)
+
+  useEffect(() => {
+    void Promise.all([loadOrders(), loadClients()])
+      .catch(() => toast.error("Não foi possível carregar as ordens."))
+  }, [loadClients, loadOrders])
 
   const [viewMode, setViewMode] = useState<"kanban" | "lista">("kanban")
   const [statusFilter, setStatusFilter] = useState("todos")
@@ -211,6 +222,7 @@ export default function OrdensPage() {
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
+    const originalCard = activeCard
     setActiveCard(null)
     setActiveColumn(null)
     setOverColumnId(null)
@@ -219,17 +231,47 @@ export default function OrdensPage() {
     if (active.data.current?.type === "column") {
       const overColId = resolveColumnId(String(over.id), orders)
       if (!overColId || overColId === active.id) return
-      setColumns((prev) => {
-        const oldIndex = prev.findIndex((c) => c.id === active.id)
-        const newIndex = prev.findIndex((c) => c.id === overColId)
-        if (oldIndex === -1 || newIndex === -1) return prev
-        return arrayMove(prev, oldIndex, newIndex)
-      })
+      const oldIndex = columns.findIndex((column) => column.id === active.id)
+      const newIndex = columns.findIndex((column) => column.id === overColId)
+      if (oldIndex === -1 || newIndex === -1) return
+      const reordered = arrayMove(columns, oldIndex, newIndex)
+      setColumns(reordered)
+      void Promise.all(reordered.map((column, index) =>
+        column.displayPosition === index
+          ? Promise.resolve()
+          : api.patch(`service-order-columns/${column.id}`, {
+              headers: idempotencyHeaders(),
+              json: {
+                version: column.version,
+                displayPosition: index,
+              },
+            })
+      )).then(loadOrders)
+        .catch(() => toast.error("Não foi possível reordenar as colunas."))
       return
     }
 
     const activeId = String(active.id)
     const overId = String(over.id)
+    const movedOrder = orders.find((order) => order.id === activeId)
+    if (
+      originalCard
+      && movedOrder
+      && originalCard.columnId !== movedOrder.columnId
+    ) {
+      void api.post(`service-orders/${activeId}/transitions`, {
+        headers: idempotencyHeaders(),
+        json: {
+          version: originalCard.version,
+          columnId: movedOrder.columnId,
+          reason: "Moved through the service-order board.",
+        },
+      }).then(loadOrders)
+        .catch(() => {
+          toast.error("Não foi possível mover a ordem.")
+          void loadOrders()
+        })
+    }
     if (activeId === overId) return
 
     // Cross-column moves already happened in onDragOver; here we only reorder within a column.
@@ -264,31 +306,47 @@ export default function OrdensPage() {
     setColumnModalOpen(true)
   }
 
-  function handleSaveColumn() {
+  async function handleSaveColumn() {
     if (columnModalMode === "add") {
-      setColumns((prev) => [
-        ...prev,
-        { id: String(Date.now()), label: columnName, color: columnColor },
-      ])
+      await api.post("service-order-columns", {
+        headers: idempotencyHeaders(),
+        json: {
+          label: columnName,
+          semanticType: "open",
+          colorToken: columnColor,
+          displayPosition: columns.length,
+        },
+      })
+      await loadOrders()
       setColumnModalOpen(false)
       toast.success("Coluna adicionada com sucesso.")
       return
     }
 
     if (!editingColumn) return
-    setColumns((prev) =>
-      prev.map((c) =>
-        c.id === editingColumn.id ? { ...c, label: columnName, color: columnColor } : c
-      )
-    )
+    await api.patch(`service-order-columns/${editingColumn.id}`, {
+      headers: idempotencyHeaders(),
+      json: {
+        version: editingColumn.version,
+        label: columnName,
+        colorToken: columnColor,
+      },
+    })
+    await loadOrders()
     setColumnModalOpen(false)
     toast.success("Coluna atualizada.")
   }
 
-  function handleDeleteColumn() {
-    if (!deletingColumn || deletingColumn.id === "concluido") return
-    setOrders((prev) => prev.filter((o) => o.columnId !== deletingColumn.id))
-    setColumns((prev) => prev.filter((c) => c.id !== deletingColumn.id))
+  async function handleDeleteColumn() {
+    if (!deletingColumn || deletingColumn.protected) return
+    await api.post(`service-order-columns/${deletingColumn.id}/archive`, {
+      headers: idempotencyHeaders(),
+      json: {
+        version: deletingColumn.version,
+        reason: "Archived through the service-order board.",
+      },
+    })
+    await loadOrders()
     setDeleteColumnOpen(false)
     toast.success(`Coluna "${deletingColumn.label}" foi removida.`)
     setDeletingColumn(null)
@@ -321,50 +379,81 @@ export default function OrdensPage() {
     setDeleteOrderOpen(true)
   }
 
-  function handleSaveOrder() {
+  async function handleSaveOrder() {
+    const customer = clients.find((client) => client.name === form.client)
+    if (!customer) {
+      toast.error("Selecione um cliente cadastrado.")
+      return
+    }
     if (orderModalMode === "add") {
-      const newOrder: Order = {
-        id: String(Date.now()),
-        columnId: form.columnId || columns[0]?.id || "",
-        title: form.title,
-        description: form.description,
-        client: form.client,
-        value: parsePriceInput(form.value),
-        priority: form.priority,
-        dueAt: form.dueAt,
-      }
-      setOrders((prev) => [...prev, newOrder])
+      await api.post("service-orders", {
+        headers: idempotencyHeaders(),
+        json: {
+          customerId: customer.id,
+          columnId: form.columnId || columns[0]?.id,
+          title: form.title,
+          description: form.description,
+          priority: orderPriority(form.priority),
+          dueAt: form.dueAt
+            ? new Date(`${form.dueAt}T12:00:00`).toISOString()
+            : null,
+          estimatedValueCents: Math.round(parsePriceInput(form.value) * 100),
+        },
+      })
+      await loadOrders()
       setOrderModalOpen(false)
       toast.success("Ordem de serviço adicionada com sucesso.")
       return
     }
 
     if (!selectedOrder) return
-    setOrders((prev) =>
-      prev.map((o) =>
-        o.id === selectedOrder.id
-          ? {
-              ...o,
-              title: form.title,
-              description: form.description,
-              client: form.client,
-              value: parsePriceInput(form.value),
-              priority: form.priority,
-              columnId: form.columnId,
-              dueAt: form.dueAt,
-            }
-          : o
-      )
-    )
+    const updated = await api.patch(`service-orders/${selectedOrder.id}`, {
+      headers: idempotencyHeaders(),
+      json: {
+        version: selectedOrder.version,
+        customerId: customer.id,
+        title: form.title,
+        description: form.description,
+        priority: orderPriority(form.priority),
+        dueAt: form.dueAt
+          ? new Date(`${form.dueAt}T12:00:00`).toISOString()
+          : null,
+        estimatedValueCents: Math.round(parsePriceInput(form.value) * 100),
+      },
+    }).json<{ version: number }>()
+    if (form.columnId !== selectedOrder.columnId) {
+      await api.post(`service-orders/${selectedOrder.id}/transitions`, {
+        headers: idempotencyHeaders(),
+        json: {
+          version: updated.version,
+          columnId: form.columnId,
+          reason: "Moved while editing the service order.",
+        },
+      })
+    }
+    await loadOrders()
     setOrderModalOpen(false)
     toast.success("Ordem de serviço atualizada.")
   }
 
-  function handleDeleteOrder() {
+  async function handleDeleteOrder() {
     if (!selectedOrder) return
-    setOrders((prev) => prev.filter((o) => o.id !== selectedOrder.id))
+    const cancelled = columns.find((column) => column.semanticType === "cancelled")
+    if (!cancelled) {
+      toast.error("A coluna de cancelamento não está configurada.")
+      return
+    }
+    await api.post(`service-orders/${selectedOrder.id}/transitions`, {
+      headers: idempotencyHeaders(),
+      json: {
+        version: selectedOrder.version,
+        columnId: cancelled.id,
+        reason: "Cancelled through the service-order board.",
+      },
+    })
+    await loadOrders()
     setDeleteOrderOpen(false)
-    toast.success(`${selectedOrder.title} foi removida.`)
+    toast.success(`${selectedOrder.title} foi cancelada.`)
     setSelectedOrder(null)
   }
 
@@ -590,9 +679,8 @@ export default function OrdensPage() {
             </div>
           </div>
           <DialogFooter showCloseButton={false} className="sm:justify-between">
-            {/* A coluna "Concluído" não pode ser removida: é o gatilho do
-                arquivamento das ordens no Histórico. */}
-            {columnModalMode === "edit" && editingColumn?.id !== "concluido" ? (
+            {/* As colunas protegidas representam os estados finais do fluxo. */}
+            {columnModalMode === "edit" && !editingColumn?.protected ? (
               <Button
                 type="button"
                 variant="outline"
@@ -636,8 +724,8 @@ export default function OrdensPage() {
             </AlertDialogMedia>
             <AlertDialogTitle>Remover coluna?</AlertDialogTitle>
             <AlertDialogDescription>
-              A coluna &quot;{deletingColumn?.label}&quot; e todas as suas ordens de serviço serão
-              removidas permanentemente. Esta ação não pode ser desfeita.
+              A coluna &quot;{deletingColumn?.label}&quot; será arquivada. Ela precisa estar sem
+              ordens de serviço para que a operação seja concluída.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -669,16 +757,16 @@ export default function OrdensPage() {
         }}
       />
 
-      {/* Dialog: Confirmar Remoção */}
+      {/* Dialog: Confirmar Cancelamento */}
       <AlertDialog open={deleteOrderOpen} onOpenChange={setDeleteOrderOpen}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)">
               <TriangleAlert size={20} />
             </AlertDialogMedia>
-            <AlertDialogTitle>Remover ordem de serviço?</AlertDialogTitle>
+            <AlertDialogTitle>Cancelar ordem de serviço?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedOrder?.title} será removida permanentemente. Esta ação não pode ser desfeita.
+              {selectedOrder?.title} será movida para o estado de cancelamento e permanecerá no histórico.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -689,7 +777,7 @@ export default function OrdensPage() {
               onClick={handleDeleteOrder}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Remover
+              Cancelar ordem
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -758,12 +846,14 @@ function KanbanColumnView({
             {orders.length}
           </span>
         </div>
-        <button
-          onClick={onAddTask}
-          className="flex items-center justify-center rounded bg-(--color-surface-raised) p-1.5 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-        >
-          <Plus size={16} />
-        </button>
+        {column.semanticType === "open" && (
+          <button
+            onClick={onAddTask}
+            className="flex items-center justify-center rounded bg-(--color-surface-raised) p-1.5 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
+          >
+            <Plus size={16} />
+          </button>
+        )}
       </div>
 
       <SortableContext items={orders.map((o) => o.id)} strategy={verticalListSortingStrategy}>
@@ -899,6 +989,7 @@ function OrderDialog({
   onDelete: () => void
 }) {
   const isEdit = mode === "edit"
+  const canCancel = columns.find((column) => column.id === form.columnId)?.semanticType === "open"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -993,7 +1084,7 @@ function OrderDialog({
         </div>
 
         <DialogFooter showCloseButton={false} className="sm:justify-between">
-          {isEdit ? (
+          {isEdit && canCancel ? (
             <Button
               type="button"
               variant="outline"
@@ -1001,7 +1092,7 @@ function OrderDialog({
               onClick={onDelete}
             >
               <Trash2 size={14} />
-              Excluir
+              Cancelar ordem
             </Button>
           ) : (
             <span />

@@ -33,7 +33,7 @@ ERP web application for retail and production management, built with Next.js 15 
 ### Prerequisites
 
 - Node.js 18+
-- A running backend API (see `NEXT_PUBLIC_API_URL`)
+- A running backend API (see `API_URL`)
 
 ### Setup
 
@@ -54,11 +54,12 @@ Open [http://localhost:3000](http://localhost:3000).
 
 | Variable | Description | Default |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | Backend API base URL | `http://localhost:3333` |
+| `API_URL` | Server-side backend API base URL | `http://localhost:3333` |
+| `NEXT_PUBLIC_API_URL` | Backend API base URL used by authentication routes | `http://localhost:3333` |
 | `JWT_SECRET` | Shared secret for JWT signing/verification | — |
 | `JWT_COOKIE_NAME` | Name of the session cookie | `flux_token` |
-| `JWT_COOKIE_MAX_AGE` | Session duration in seconds | `28800` (8 h) |
-| `MOCK_AUTH` | Skip real auth for local testing | `false` |
+| `REFRESH_COOKIE_NAME` | Name of the refresh-token cookie | `flux_refresh_token` |
+| `REFRESH_COOKIE_MAX_AGE` | Refresh-cookie duration in seconds | `2592000` (30 days) |
 
 ### Scripts
 
@@ -101,9 +102,9 @@ src/
 ## Authentication
 
 1. User submits credentials to `/api/auth/login`
-2. Server validates with the backend and receives a JWT
-3. JWT is stored in an `httpOnly; Secure; SameSite=Strict` cookie
-4. `middleware.ts` verifies the JWT at the Edge on every protected route
+2. Server validates with the backend and receives access and refresh tokens
+3. Both tokens are stored in `httpOnly; Secure; SameSite=Strict` cookies
+4. `proxy.ts` verifies the access token on every protected route
 5. Expired or invalid tokens redirect to `/login?next=<original-route>`
 
 ## Architecture

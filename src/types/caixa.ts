@@ -3,8 +3,8 @@ export type CaixaStatus = "aberto" | "fechado"
 // "venda" é gerada automaticamente pela Frente de Caixa para cada forma de
 // pagamento — não passa pelo modal manual de movimentação, por isso
 // fica separada de MovimentacaoManual (o que a Dialog de sangria/suprimento aceita).
-export type MovimentacaoTipo = "sangria" | "suprimento" | "venda"
-export type MovimentacaoManual = Exclude<MovimentacaoTipo, "venda">
+export type MovimentacaoTipo = "sangria" | "suprimento" | "venda" | "estorno" | "devolucao" | "ajuste"
+export type MovimentacaoManual = "sangria" | "suprimento"
 
 // Forma de pagamento de uma movimentação de venda. Cartão crédito e débito
 // ficam separados para permitir a conferência por método no fechamento do
@@ -29,6 +29,8 @@ export interface CaixaSessao {
   operadorAbertura: string
   valorAbertura: number
   abertoEm: string // ISO
+  version: number
+  esperadoPorMetodo?: Record<MetodoPagamento, number>
   movimentacoes: Movimentacao[]
   operadorFechamento?: string
   valorContado?: number

@@ -15,20 +15,12 @@ export interface HistoryEntry {
   clientName: string
   phone: string
   date: string
+  completedAt: string
+  netTotal: number
+  returnedAmount: number
   items: HistoryItem[]
   discount: number
   // Detalhamento completo do pagamento: uma ou mais formas, cada uma com seu
   // valor e, no cartão, tipo e parcelas. Mesmo modelo produzido pela Frente de Caixa.
   payments: Payment[]
-}
-
-// Corpo de uma venda finalizada na Frente de Caixa — o que futuramente será
-// enviado ao backend (POST /vendas) e que origina o HistoryEntry correspondente.
-export interface SaleInput {
-  orderNumber: number
-  clientName: string
-  items: HistoryItem[]
-  discount: number
-  payments: Payment[]
-  change?: number
 }

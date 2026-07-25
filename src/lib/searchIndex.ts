@@ -11,11 +11,11 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react"
-import { INITIAL_COLUMNS, INITIAL_ORDERS, visibleOrders } from "@/data/orders"
-import { INITIAL_HISTORY, entryTotal } from "@/data/history"
+import type { HistorySearchRecord } from "@/store/historyStore"
 import { formatCurrency } from "@/lib/formatters"
 import type { Client } from "@/types/client"
 import type { Product } from "@/types/product"
+import type { KanbanColumn, Order } from "@/types/order"
 
 export type SearchGroup =
   | "Produtos"
@@ -166,9 +166,9 @@ function clientItems(clients: Client[]): SearchItem[] {
   }))
 }
 
-function orderItems(): SearchItem[] {
-  return visibleOrders(INITIAL_ORDERS).map((o) => {
-    const column = INITIAL_COLUMNS.find((c) => c.id === o.columnId)
+function orderItems(orders: Order[], columns: KanbanColumn[]): SearchItem[] {
+  return orders.map((o) => {
+    const column = columns.find((c) => c.id === o.columnId)
     return {
       id: `ordem-${o.id}`,
       label: o.title,
@@ -181,26 +181,32 @@ function orderItems(): SearchItem[] {
   })
 }
 
-function historyItems(): SearchItem[] {
-  return INITIAL_HISTORY.map((e) => ({
+function historyItems(history: HistorySearchRecord[]): SearchItem[] {
+  return history.map((e) => ({
     id: `compra-${e.id}`,
-    label: `Nº${e.orderNumber} · ${e.clientName}`,
-    description: `${e.date} · ${formatCurrency(entryTotal(e))}`,
+    label: `Nº${e.businessNumber} · ${e.customerName}`,
+    description: new Date(e.completedAt).toLocaleDateString("pt-BR"),
     href: "/historico",
     icon: History,
-    keywords: [e.clientName, ...e.items.map((i) => i.name)],
+    keywords: [e.customerName, ...e.itemNames],
     group: "Compras",
   }))
 }
 
 // Clientes vêm do store (podem ser cadastrados em tempo real); o resto sai das
 // mesmas fontes que alimentam as telas.
-export function buildSearchIndex(clients: Client[], products: Product[]): SearchItem[] {
+export function buildSearchIndex(
+  clients: Client[],
+  products: Product[],
+  orders: Order[],
+  columns: KanbanColumn[],
+  history: HistorySearchRecord[]
+): SearchItem[] {
   return [
     ...productItems(products),
     ...clientItems(clients),
-    ...orderItems(),
-    ...historyItems(),
+    ...orderItems(orders, columns),
+    ...historyItems(history),
     ...PAGE_ITEMS,
   ]
 }
