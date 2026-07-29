@@ -73,7 +73,6 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
   }
 
   const active = hover != null ? data[hover] : null
-  const activeValue = active ? (active.realized ?? active.projected ?? 0) : 0
   const activeLeft = hover != null ? (x(hover) / W) * 100 : 0
 
   return (
@@ -147,19 +146,29 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
 
         {/* points */}
         {data.map((d, i) => {
-          const v = d.realized ?? d.projected
-          if (v == null) return null
-          const isProjected = d.realized == null
           return (
-            <circle
-              key={d.label}
-              cx={x(i)}
-              cy={y(v)}
-              r={3}
-              fill="var(--color-surface)"
-              stroke={isProjected ? "var(--color-accent)" : "var(--color-success)"}
-              strokeWidth={2}
-            />
+            <g key={d.label}>
+              {d.realized != null && (
+                <circle
+                  cx={x(i)}
+                  cy={y(d.realized)}
+                  r={3}
+                  fill="var(--color-surface)"
+                  stroke="var(--color-success)"
+                  strokeWidth={2}
+                />
+              )}
+              {d.projected != null && (
+                <circle
+                  cx={x(i)}
+                  cy={y(d.projected)}
+                  r={3}
+                  fill="var(--color-surface)"
+                  stroke="var(--color-accent)"
+                  strokeWidth={2}
+                />
+              )}
+            </g>
           )
         })}
 
@@ -176,14 +185,26 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
               strokeDasharray="3 3"
               strokeOpacity={0.6}
             />
-            <circle
-              cx={x(hover!)}
-              cy={y(activeValue)}
-              r={5}
-              fill={active.realized == null ? "var(--color-accent)" : "var(--color-success)"}
-              stroke="var(--color-surface)"
-              strokeWidth={2}
-            />
+            {active.realized != null && (
+              <circle
+                cx={x(hover!)}
+                cy={y(active.realized)}
+                r={5}
+                fill="var(--color-success)"
+                stroke="var(--color-surface)"
+                strokeWidth={2}
+              />
+            )}
+            {active.projected != null && (
+              <circle
+                cx={x(hover!)}
+                cy={y(active.projected)}
+                r={5}
+                fill="var(--color-accent)"
+                stroke="var(--color-surface)"
+                strokeWidth={2}
+              />
+            )}
           </>
         )}
       </svg>
@@ -194,12 +215,16 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
           style={{ left: `${activeLeft}%` }}
         >
           <p className="text-[11px] font-medium text-(--color-text-secondary)">{active.label}</p>
-          <p className="text-[13px] font-semibold text-(--color-text-primary)">
-            {formatCurrency(activeValue)}
-          </p>
-          <p className="text-[10px] text-(--color-text-secondary)">
-            {active.realized == null ? "Projetado" : "Realizado"}
-          </p>
+          {active.realized != null && (
+            <p className="text-[11px] text-(--color-success)">
+              Realizado: <span className="font-semibold">{formatCurrency(active.realized)}</span>
+            </p>
+          )}
+          {active.projected != null && (
+            <p className="text-[11px] text-(--color-accent)">
+              Projetado: <span className="font-semibold">{formatCurrency(active.projected)}</span>
+            </p>
+          )}
         </div>
       )}
 

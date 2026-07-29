@@ -726,7 +726,7 @@ export default function FrenteDeCaixaPage() {
           <div className="flex items-center gap-3">
             {/* Faixa de categorias rolável na horizontal; "Ordens" fica
                 destacada (cor de acento + ícone) por não ser categoria de produto. */}
-            <div className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg bg-(--color-surface-raised) p-1 scrollbar-none">
+            <div className="flex w-1/2 max-w-[540px] shrink-0 items-center gap-1 overflow-x-auto rounded-lg bg-(--color-surface-raised) p-1 scrollbar-none">
               {CATEGORIES.map((c) => {
                 const isOrders = c === ORDERS_CATEGORY
                 const active = category === c

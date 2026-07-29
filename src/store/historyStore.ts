@@ -8,27 +8,31 @@ import type { Payment } from "@/types/payment"
 
 type ApiPaymentMethod = "cash" | "credit" | "debit" | "pix"
 
-interface ApiSale {
+interface ApiHistorySale {
   id: string
   businessNumber: number
   status: "completed" | "partially_returned" | "returned" | "cancelled"
   customer: { id: string; name: string } | null
-  grossAmountCents: number
-  discountAmountCents: number
-  netAmountCents: number
-  returnedAmountCents: number
   completedAt: string
-  items: Array<{
-    productName: string
-    productType: "raw_material" | "finished_product" | "packaging" | "service"
-    quantity: number
-    grossAmountCents: number
-  }>
-  payments: Array<{
-    method: ApiPaymentMethod
-    effectiveAmountCents: number
-    installments: number | null
-  }>
+  itemNames: string[]
+  details?: {
+    items: Array<{
+      productName: string
+      productType: "raw_material" | "finished_product" | "packaging" | "service"
+      quantity: number
+      grossAmountCents: number
+    }>
+    payments: Array<{
+      method: ApiPaymentMethod
+      effectiveAmountCents: number
+      installments: number | null
+    }>
+  }
+  financial?: {
+    discountAmountCents: number
+    returnedAmountCents: number
+    netRevenueCents: number
+  }
 }
 
 export interface HistoryKpis {
@@ -45,7 +49,7 @@ export interface HistorySearchRecord {
   itemNames: string[]
 }
 
-function payment(value: ApiSale["payments"][number]): Payment {
+function payment(value: NonNullable<ApiHistorySale["details"]>["payments"][number]): Payment {
   if (value.method === "credit") {
     return {
       kind: "cartao",
@@ -67,9 +71,11 @@ function payment(value: ApiSale["payments"][number]): Payment {
   }
 }
 
-function entry(sale: ApiSale): HistoryEntry {
+function entry(sale: ApiHistorySale): HistoryEntry {
   const clients = useClientsStore.getState().clients
   const customer = sale.customer
+  const details = sale.details
+  const financial = sale.financial
   return {
     id: sale.id,
     orderNumber: sale.businessNumber,
@@ -83,18 +89,16 @@ function entry(sale: ApiSale): HistoryEntry {
       minute: "2-digit",
     }),
     completedAt: sale.completedAt,
-    netTotal: sale.status === "cancelled"
-      ? 0
-      : (sale.netAmountCents - sale.returnedAmountCents) / 100,
-    returnedAmount: sale.returnedAmountCents / 100,
-    items: sale.items.map((item) => ({
+    netTotal: sale.status === "cancelled" ? 0 : (financial?.netRevenueCents ?? 0) / 100,
+    returnedAmount: (financial?.returnedAmountCents ?? 0) / 100,
+    items: (details?.items ?? []).map((item) => ({
       name: item.productName,
       quantity: item.quantity,
       total: item.grossAmountCents / 100,
       type: item.productType === "service" ? "servico" : "produto",
     })),
-    discount: sale.discountAmountCents / 100,
-    payments: sale.payments.map(payment),
+    discount: (financial?.discountAmountCents ?? 0) / 100,
+    payments: (details?.payments ?? []).map(payment),
   }
 }
 
@@ -117,21 +121,12 @@ export const useHistoryStore = create<HistoryStore>((set) => ({
   loadHistory: async (includeKpis = false) => {
     const page = await api.get("history/sales", {
       searchParams: { limit: 100 },
-    }).json<{ data: Array<{
-      id: string
-      businessNumber: number
-      customer: { name: string } | null
-      completedAt: string
-      itemNames: string[]
-    }> }>()
-    const sales = await Promise.all(
-      page.data.map((record) => api.get(`sales/${record.id}`).json<ApiSale>())
-    )
+    }).json<{ data: ApiHistorySale[] }>()
     const kpis = includeKpis
       ? await api.get("history/kpis").json<HistoryKpis>()
       : null
     set({
-      history: sales.map(entry),
+      history: page.data.map(entry),
       searchRecords: page.data.map((record) => ({
         id: record.id,
         businessNumber: record.businessNumber,

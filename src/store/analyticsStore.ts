@@ -4,6 +4,10 @@ import { create } from "zustand"
 import { api, idempotencyHeaders } from "@/lib/api"
 
 export interface DashboardData {
+  dateRange: {
+    from: string
+    to: string
+  }
   dataFreshnessAt: string
   sales: {
     netRevenueCents: number
@@ -12,19 +16,43 @@ export interface DashboardData {
   }
   revenueSeries: Array<{
     bucketStart: string
+    completedSaleCount: number
     netRevenueCents: number
+  }>
+  serviceOrderSeries: Array<{
+    bucketStart: string
+    createdCount: number
+    completedCount: number
   }>
   topProducts: {
     data: Array<{
       productId: string
       name: string
+      barcode: string | null
+      type: "raw_material" | "finished_product" | "packaging" | "service"
       unitsSold: number
       netRevenueCents: number
     }>
   }
-  inventory: {
+  inventorySeries: Array<{
+    bucketStart: string
     soldOutCount: number
     lowStockCount: number
+  }>
+  inventory: {
+    activeProductCount: number
+    soldOutCount: number
+    lowStockCount: number
+    inventoryValueCents: number | null
+    unitTurnover: number | null
+    coverageDays: number | null
+    stockoutRate: number | null
+  }
+  customers: {
+    activeCustomerCount: number
+    repeatCustomerCount: number
+    purchaseFrequency: number | null
+    repeatCustomerRate: number | null
   }
   serviceOrders: {
     createdCount: number
@@ -32,6 +60,8 @@ export interface DashboardData {
     openCount: number
     overdueOpenCount: number
     completionRate: number | null
+    averageCycleTimeHours: number | null
+    onTimeRate: number | null
   }
   cash: {
     openedSessionCount: number
@@ -57,7 +87,16 @@ export interface ForecastRun {
     operationalValue: number
     lowerLimit: number | null
     upperLimit: number | null
+    seasonalFactor: number | null
   }>
+}
+
+interface DashboardQuery {
+  from?: string
+  to?: string
+  bucket?: "day" | "week" | "month"
+  topBy?: "units" | "net_revenue"
+  topLimit?: number
 }
 
 export interface Recommendation {
@@ -65,6 +104,7 @@ export interface Recommendation {
   type: "replenishment" | "promotion" | "overstock_review"
   product: { id: string; name: string }
   proposedValue: unknown
+  evidenceMetrics: unknown
   confidenceScore: number | null
   confidenceLabel: "low" | "medium" | "high" | "unavailable"
   state: "pending" | "accepted" | "rejected"
@@ -84,11 +124,12 @@ export interface AiInsight {
 
 interface AnalyticsStore {
   dashboard: DashboardData | null
+  trendDashboard: DashboardData | null
   forecasts: ForecastRun[]
   recommendations: Recommendation[]
   insights: AiInsight[]
   insightAvailability: "available" | "unavailable"
-  loadDashboard: () => Promise<void>
+  loadDashboard: (query?: DashboardQuery) => Promise<void>
   loadIntelligence: () => Promise<void>
   runForecasts: () => Promise<void>
   runRecommendations: () => Promise<void>
@@ -99,14 +140,32 @@ interface AnalyticsStore {
 
 export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
   dashboard: null,
+  trendDashboard: null,
   forecasts: [],
   recommendations: [],
   insights: [],
   insightAvailability: "available",
-  loadDashboard: async () => {
-    const [dashboard, insights] = await Promise.all([
+  loadDashboard: async (query) => {
+    const trendTo = query?.to ? new Date(query.to) : new Date()
+    const trendFrom = new Date(trendTo.getFullYear(), trendTo.getMonth() - 5, 1)
+    const [dashboard, trendDashboard, insights] = await Promise.all([
       api.get("dashboard", {
-        searchParams: { bucket: "month", topLimit: 5 },
+        searchParams: {
+          bucket: query?.bucket ?? "month",
+          topBy: query?.topBy ?? "net_revenue",
+          topLimit: query?.topLimit ?? 5,
+          ...(query?.from ? { from: query.from } : {}),
+          ...(query?.to ? { to: query.to } : {}),
+        },
+      }).json<DashboardData>(),
+      api.get("dashboard", {
+        searchParams: {
+          bucket: "month",
+          topBy: query?.topBy ?? "net_revenue",
+          topLimit: query?.topLimit ?? 5,
+          from: trendFrom.toISOString(),
+          to: trendTo.toISOString(),
+        },
       }).json<DashboardData>(),
       api.get("intelligence/insights", {
         searchParams: { limit: 5, state: "accepted" },
@@ -114,6 +173,7 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
     ])
     set({
       dashboard,
+      trendDashboard,
       insights: insights.data,
       insightAvailability: insights.availability,
     })
@@ -157,14 +217,21 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
     await get().loadIntelligence()
   },
   reviewRecommendation: async (id, decision) => {
-    await api.post(`intelligence/recommendations/${id}/review`, {
+    const reviewed = await api.post(`intelligence/recommendations/${id}/review`, {
       headers: idempotencyHeaders(),
       json: {
         decision,
-        reason: "Reviewed through the intelligence dashboard.",
+        reason: decision === "accepted"
+          ? "Applied through the intelligence dashboard."
+          : "Rejected through the intelligence dashboard.",
       },
-    })
-    await get().loadIntelligence()
+    }).json<Recommendation>()
+    set((state) => ({
+      recommendations: state.recommendations.map((item) =>
+        item.id === reviewed.id ? reviewed : item
+      ),
+    }))
+    await get().loadIntelligence().catch(() => undefined)
   },
   reviewInsight: async (id, decision) => {
     await api.post(`intelligence/insights/${id}/review`, {

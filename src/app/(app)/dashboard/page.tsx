@@ -19,8 +19,53 @@ const CARD_LABEL =
 const CARD_VALUE =
   "text-[24px] font-semibold leading-9 tracking-[-0.48px] text-(--color-text-primary) font-(family-name:--font-data)"
 
+function MiniBars({
+  data,
+}: {
+  data: { label: string; value: number; display: string; highlight?: boolean }[]
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex h-14 items-end gap-2">
+        {data.map((bar) => (
+          <div key={bar.label} className="group relative flex h-full flex-1 items-end">
+            <div
+              className={cn(
+                "w-full rounded-t-sm transition-opacity group-hover:opacity-80",
+                bar.highlight ? "bg-(--color-accent)" : "bg-border"
+              )}
+              style={{ height: `${bar.value}%` }}
+            />
+            <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-(--color-border) bg-(--color-surface-raised) px-2 py-1 text-[11px] font-semibold text-(--color-text-primary) opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+              {bar.display}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        {data.map((bar) => (
+          <span
+            key={bar.label}
+            className="flex-1 text-center text-[11px] font-medium text-(--color-text-secondary)"
+          >
+            {bar.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function monthLabel(bucketStart: string): string {
+  const label = new Intl.DateTimeFormat("pt-BR", { month: "short" })
+    .format(new Date(`${bucketStart}T12:00:00`))
+    .replace(".", "")
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
 export default function DashboardPage() {
   const dashboard = useAnalyticsStore((state) => state.dashboard)
+  const trendDashboard = useAnalyticsStore((state) => state.trendDashboard)
   const insights = useAnalyticsStore((state) => state.insights)
   const loadDashboard = useAnalyticsStore((state) => state.loadDashboard)
   const columns = useOrdersStore((state) => state.columns)
@@ -37,14 +82,41 @@ export default function DashboardPage() {
   const stockAlerts = products.filter(
     (product) => product.status === "Baixo estoque" || product.status === "Esgotado"
   )
-  const revenuePoints = dashboard?.revenueSeries.map((point, index, series) => ({
-    label: new Intl.DateTimeFormat("pt-BR", { month: "short" })
-      .format(new Date(`${point.bucketStart}T12:00:00`))
-      .replace(".", ""),
+  const revenuePoints = (trendDashboard?.revenueSeries ?? dashboard?.revenueSeries ?? [])
+    .map((point, index, series) => ({
+    label: monthLabel(point.bucketStart),
     value: point.netRevenueCents / 100,
     display: formatCurrency(point.netRevenueCents / 100),
     highlight: index === series.length - 1,
-  })) ?? []
+  }))
+  const serviceOrderSeries = trendDashboard?.serviceOrderSeries
+    ?? dashboard?.serviceOrderSeries
+    ?? []
+  const maximumCompletedOrders = Math.max(
+    ...serviceOrderSeries.map((point) => point.completedCount),
+    1
+  )
+  const productionBars = serviceOrderSeries.map((point, index, series) => ({
+    label: monthLabel(point.bucketStart),
+    value: (point.completedCount / maximumCompletedOrders) * 100,
+    display: `${point.completedCount} ${point.completedCount === 1 ? "pedido concluído" : "pedidos concluídos"}`,
+    highlight: index === series.length - 1,
+  }))
+  const pendingColumnIds = new Set(
+    columns
+      .filter((column) => (
+        column.semanticType === "open"
+        && column.label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("pendent")
+      ))
+      .map((column) => column.id)
+  )
+  const pendingCount = orders.filter((order) => (
+    order.status === "open" && pendingColumnIds.has(order.columnId)
+  )).length
+  const inProductionCount = Math.max(
+    0,
+    (dashboard?.serviceOrders.openCount ?? 0) - pendingCount
+  )
 
   return (
     <div>
@@ -77,13 +149,15 @@ export default function DashboardPage() {
               <span className={CARD_LABEL}>Pedidos Ativos</span>
               <span className={CARD_VALUE}>{dashboard?.serviceOrders.openCount ?? 0}</span>
             </div>
-            <span className="inline-flex items-center gap-2 rounded-full bg-border/50 px-2.5 py-1 text-[12px] font-semibold text-(--color-text-primary)">
-              Produção
+            <span className="inline-flex items-center gap-2 rounded-full bg-border/50 px-2.5 py-1">
+              <span className="size-1.5 rounded-full bg-(--color-accent)" />
+              <span className="text-[12px] font-semibold text-(--color-text-primary)">Produção</span>
             </span>
           </div>
+          {productionBars.length > 0 && <MiniBars data={productionBars} />}
           <div className="flex items-center justify-between text-[14px] text-(--color-text-primary)">
-            <span>{dashboard?.serviceOrders.completedCount ?? 0} concluídos</span>
-            <span>{dashboard?.serviceOrders.overdueOpenCount ?? 0} atrasados</span>
+            <span>{inProductionCount} em produção</span>
+            <span>{pendingCount} {pendingCount === 1 ? "pendente" : "pendentes"}</span>
           </div>
         </div>
 
@@ -102,10 +176,18 @@ export default function DashboardPage() {
               <div key={product.id} className="flex items-center justify-between gap-2 text-[14px]">
                 <span className="truncate text-(--color-text-primary)">{product.name}</span>
                 <span className={product.status === "Esgotado" ? "text-(--color-danger)" : "text-(--color-warning)"}>
-                  {product.status}
+                  {product.status === "Esgotado" ? "Esgotado" : "Baixo"}
                 </span>
               </div>
             ))}
+            {stockAlerts.length > 3 && (
+              <Link
+                href="/inventario"
+                className="mt-1 text-[13px] font-medium text-(--color-accent) hover:underline"
+              >
+                Ver todos os {stockAlerts.length} itens
+              </Link>
+            )}
           </div>
         </div>
       </div>

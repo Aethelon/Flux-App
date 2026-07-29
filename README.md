@@ -58,8 +58,9 @@ flowchart LR
     P --> API
     API --> DB[("PostgreSQL")]
     API --> J["Persisted jobs"]
-    W["Flux worker"] --> J
-    W --> DB
+    API --> B["Embedded background jobs"]
+    B --> J
+    B --> DB
 ```
 
 The browser calls only local Next.js routes:
@@ -196,8 +197,7 @@ idempotent mutations.
 
 ## Current limitations
 
-- Sales history and global search currently index the latest 100 sales.
-- The history screen loads individual sale details separately.
+- Administrator sales history and global search currently index the latest 100 sales.
 - Automated browser and component tests are not yet available.
 - Full commercial tenant onboarding is not part of the D'lara pilot.
 

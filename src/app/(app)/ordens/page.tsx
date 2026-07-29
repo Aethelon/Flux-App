@@ -1037,6 +1037,7 @@ function OrderDialog({
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="order-status">Status</Label>
               <Select
+                items={columns.map((column) => ({ value: column.id, label: column.label }))}
                 value={form.columnId}
                 onValueChange={(v) => onChange({ ...form, columnId: v as string })}
               >
