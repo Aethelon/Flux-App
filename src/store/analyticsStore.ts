@@ -113,6 +113,7 @@ export interface Recommendation {
 
 export interface AiInsight {
   id: string
+  runId: string
   type: "summary" | "strength" | "risk" | "recommendation"
   text: string
   severity: "low" | "medium" | "high" | null
@@ -122,6 +123,15 @@ export interface AiInsight {
   createdAt: string
 }
 
+export type AiRunStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "cached"
+  | "rejected"
+  | "failed"
+  | "budget_exceeded"
+
 interface AnalyticsStore {
   dashboard: DashboardData | null
   trendDashboard: DashboardData | null
@@ -129,6 +139,7 @@ interface AnalyticsStore {
   recommendations: Recommendation[]
   insights: AiInsight[]
   insightAvailability: "available" | "unavailable"
+  insightRunStatus: AiRunStatus | null
   loadDashboard: (query?: DashboardQuery) => Promise<void>
   loadIntelligence: () => Promise<void>
   runForecasts: () => Promise<void>
@@ -145,6 +156,7 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
   recommendations: [],
   insights: [],
   insightAvailability: "available",
+  insightRunStatus: null,
   loadDashboard: async (query) => {
     const trendTo = query?.to ? new Date(query.to) : new Date()
     const trendFrom = new Date(trendTo.getFullYear(), trendTo.getMonth() - 5, 1)
@@ -169,13 +181,18 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
       }).json<DashboardData>(),
       api.get("intelligence/insights", {
         searchParams: { limit: 5, state: "accepted" },
-      }).json<{ data: AiInsight[]; availability: "available" | "unavailable" }>(),
+      }).json<{
+        data: AiInsight[]
+        availability: "available" | "unavailable"
+        latestRunStatus: AiRunStatus | null
+      }>(),
     ])
     set({
       dashboard,
       trendDashboard,
       insights: insights.data,
       insightAvailability: insights.availability,
+      insightRunStatus: insights.latestRunStatus,
     })
   },
   loadIntelligence: async () => {
@@ -188,13 +205,30 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
       }).json<{ data: Recommendation[] }>(),
       api.get("intelligence/insights", {
         searchParams: { limit: 50 },
-      }).json<{ data: AiInsight[]; availability: "available" | "unavailable" }>(),
+      }).json<{
+        data: AiInsight[]
+        availability: "available" | "unavailable"
+        latestRunStatus: AiRunStatus | null
+      }>(),
     ])
+    const latestRunId = insights.data[0]?.runId
+    const reportInsights = latestRunId
+      ? insights.data.filter((item) => item.runId === latestRunId)
+      : []
+    const reportOrder: Record<AiInsight["type"], number> = {
+      summary: 0,
+      strength: 1,
+      risk: 2,
+      recommendation: 3,
+    }
     set({
       forecasts: forecasts.data,
       recommendations: recommendations.data,
-      insights: insights.data,
+      insights: reportInsights.sort((left, right) =>
+        reportOrder[left.type] - reportOrder[right.type]
+      ),
       insightAvailability: insights.availability,
+      insightRunStatus: insights.latestRunStatus,
     })
   },
   runForecasts: async () => {

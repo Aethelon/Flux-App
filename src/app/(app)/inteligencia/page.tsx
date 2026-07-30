@@ -94,6 +94,12 @@ const INSIGHT_LABEL: Record<AiInsight["type"], string> = {
   risk: "Ponto de atenção",
   recommendation: "Recomendação",
 }
+const INSIGHT_TYPES: AiInsight["type"][] = [
+  "summary",
+  "strength",
+  "risk",
+  "recommendation",
+]
 
 function SurfaceCard({
   className,
@@ -632,13 +638,13 @@ export default function InteligenciaPage() {
   const recommendations = useAnalyticsStore((state) => state.recommendations)
   const insights = useAnalyticsStore((state) => state.insights)
   const insightAvailability = useAnalyticsStore((state) => state.insightAvailability)
+  const insightRunStatus = useAnalyticsStore((state) => state.insightRunStatus)
   const loadDashboard = useAnalyticsStore((state) => state.loadDashboard)
   const loadIntelligence = useAnalyticsStore((state) => state.loadIntelligence)
   const runForecasts = useAnalyticsStore((state) => state.runForecasts)
   const runRecommendations = useAnalyticsStore((state) => state.runRecommendations)
   const runInsights = useAnalyticsStore((state) => state.runInsights)
   const reviewRecommendation = useAnalyticsStore((state) => state.reviewRecommendation)
-  const reviewInsight = useAnalyticsStore((state) => state.reviewInsight)
   const columns = useOrdersStore((state) => state.columns)
   const orders = useOrdersStore((state) => state.orders)
   const loadOrders = useOrdersStore((state) => state.loadOrders)
@@ -667,6 +673,19 @@ export default function InteligenciaPage() {
     ])
       .catch(() => toast.error("Não foi possível carregar os dados de inteligência."))
   }, [loadDashboard, loadIntelligence, loadOrders, period])
+
+  useEffect(() => {
+    if (insightRunStatus !== "pending" && insightRunStatus !== "processing") return
+    const interval = window.setInterval(() => {
+      void loadIntelligence().then(() => {
+        const status = useAnalyticsStore.getState().insightRunStatus
+        if (status !== "pending" && status !== "processing") {
+          setReportOpen(true)
+        }
+      }).catch(() => undefined)
+    }, 1_500)
+    return () => window.clearInterval(interval)
+  }, [insightRunStatus, loadIntelligence])
 
   async function execute(
     actionName: Exclude<RunningAction, "refresh" | null>,
@@ -764,6 +783,13 @@ export default function InteligenciaPage() {
   }, [dashboard?.revenueSeries, revenueForecast, trendDashboard?.revenueSeries])
 
   const visibleInsights = insights.filter((insight) => insight.state !== "rejected")
+  const insightGroups = INSIGHT_TYPES.map((type) => ({
+    type,
+    items: visibleInsights.filter((insight) => insight.type === type),
+  })).filter((group) => group.items.length > 0)
+  const insightProcessing = insightRunStatus === "pending"
+    || insightRunStatus === "processing"
+  const reportVisible = reportOpen || insightProcessing
   const promotionRecommendations = recommendations.filter(
     (recommendation) => recommendation.type !== "replenishment"
   )
@@ -827,7 +853,7 @@ export default function InteligenciaPage() {
         <div
           className={cn(
             "flex flex-wrap items-center justify-between gap-4 bg-(--color-surface-raised) px-5 py-3.5",
-            reportOpen && "border-b border-(--color-border)"
+            reportVisible && "border-b border-(--color-border)"
           )}
         >
           <div className="flex items-center gap-2.5">
@@ -843,23 +869,29 @@ export default function InteligenciaPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Segmented value={period} onChange={setPeriod} />
-            {!reportOpen ? (
+            {!reportVisible ? (
               <Button
                 className="gap-2"
-                disabled={running !== null || (visibleInsights.length === 0 && insightAvailability === "unavailable")}
+                disabled={running !== null || insightProcessing || (visibleInsights.length === 0 && insightAvailability === "unavailable")}
                 onClick={() => {
                   if (visibleInsights.length > 0) setReportOpen(true)
                   else void generateReport()
                 }}
               >
-                {running === "insight" ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                {visibleInsights.length > 0 ? "Ver Relatório de IA" : "Gerar Relatório de IA"}
+                {running === "insight" || insightProcessing
+                  ? <Loader2 size={16} className="animate-spin" />
+                  : <Sparkles size={16} />}
+                {insightProcessing
+                  ? "Processando relatório"
+                  : visibleInsights.length > 0
+                    ? "Ver Relatório de IA"
+                    : "Gerar Relatório de IA"}
               </Button>
             ) : (
               <>
                 <Button
                   className="gap-2"
-                  disabled={running !== null || insightAvailability === "unavailable"}
+                  disabled={running !== null || insightProcessing || insightAvailability === "unavailable"}
                   onClick={() => void generateReport()}
                 >
                   {running === "insight" ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
@@ -878,39 +910,50 @@ export default function InteligenciaPage() {
           </div>
         </div>
 
-        {reportOpen && (
+        {reportVisible && (
           <div className="p-5">
             {visibleInsights.length === 0 ? (
-              <p className="text-[13px] text-(--color-text-secondary)">
-                O relatório está sendo processado. Atualize a página em alguns instantes.
-              </p>
+              <div className="flex items-center gap-2 text-[13px] text-(--color-text-secondary)">
+                {insightProcessing && <Loader2 size={15} className="animate-spin" />}
+                <p>
+                  {insightProcessing
+                    ? "O relatório está sendo processado e aparecerá automaticamente."
+                    : insightRunStatus === "rejected"
+                      ? "A resposta da IA não passou pela validação de evidências. Gere um novo relatório."
+                      : insightRunStatus === "failed"
+                        ? "A geração do relatório falhou. Tente novamente."
+                        : insightRunStatus === "budget_exceeded"
+                          ? "O limite de uso da IA foi atingido."
+                          : "Nenhum relatório foi gerado ainda."}
+                </p>
+              </div>
             ) : (
               <div className="flex max-w-4xl flex-col gap-5">
-                {visibleInsights.map((insight) => (
-                  <div key={insight.id}>
-                    <div className="mb-1.5 flex items-center justify-between gap-3">
+                {insightGroups.map((group) => (
+                  <div key={group.type}>
+                    <div className="mb-1.5 flex items-center gap-3">
                       <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--color-text-primary)">
-                        {insight.type === "risk"
+                        {group.type === "risk"
                           ? <TriangleAlert size={14} className="text-(--color-warning)" />
-                          : insight.type === "recommendation"
+                          : group.type === "recommendation"
                             ? <Lightbulb size={14} className="text-(--color-accent)" />
-                            : insight.type === "summary"
+                            : group.type === "summary"
                               ? <FileText size={14} className="text-(--color-accent)" />
                               : <TrendingUp size={14} className="text-(--color-success)" />}
-                        {INSIGHT_LABEL[insight.type]}
+                        {INSIGHT_LABEL[group.type]}
                       </h3>
-                      {insight.state === "pending" && (
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline" onClick={() => void reviewInsight(insight.id, "rejected")}>
-                            Rejeitar
-                          </Button>
-                          <Button size="sm" onClick={() => void reviewInsight(insight.id, "accepted")}>
-                            Aprovar
-                          </Button>
-                        </div>
-                      )}
                     </div>
-                    <p className="text-[13px] leading-relaxed text-(--color-text-secondary)">{insight.text}</p>
+                    {group.items.length > 1 ? (
+                      <ul className="list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed text-(--color-text-secondary)">
+                        {group.items.map((insight) => (
+                          <li key={insight.id}>{insight.text}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-[13px] leading-relaxed text-(--color-text-secondary)">
+                        {group.items[0]?.text}
+                      </p>
+                    )}
                   </div>
                 ))}
                 <p className="border-t border-(--color-border) pt-3 text-[11px] text-(--color-text-secondary)">
