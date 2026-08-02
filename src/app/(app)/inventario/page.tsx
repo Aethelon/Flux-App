@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
+import { HTTPError } from "ky"
 import { Plus, Eye, Pencil, Trash2, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -155,6 +156,12 @@ export default function InventarioPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductForm>(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
+  const normalizedBarcode = form.barcode.trim()
+  const duplicateBarcode = normalizedBarcode
+    ? products.find((product) =>
+        product.barcode.trim() === normalizedBarcode && product.id !== selectedProduct?.id
+      )
+    : undefined
 
   // Serviços ficam fora das métricas de estoque (não têm itens armazenados).
   const stockControlled = products.filter((p) => p.type !== "service")
@@ -173,6 +180,7 @@ export default function InventarioPage() {
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   function openAdd() {
+    setSelectedProduct(null)
     setForm({
       ...EMPTY_FORM,
       category: categories[0]?.name ?? "",
@@ -211,6 +219,10 @@ export default function InventarioPage() {
 
   async function handleAdd() {
     if (submitting) return
+    if (duplicateBarcode) {
+      toast.error(`Este código de barras já pertence a ${duplicateBarcode.name}.`)
+      return
+    }
     const service = form.type === "service"
     const stock = service ? 0 : Number(form.stock) || 0
     const minStock = service ? 0 : Number(form.minStock) || 0
@@ -239,7 +251,7 @@ export default function InventarioPage() {
       const created = await api.post("products", {
         headers: idempotencyHeaders(),
         json: {
-          barcode: form.barcode || null,
+          barcode: normalizedBarcode || null,
           type: form.type,
           name: form.name,
           description: form.description,
@@ -270,7 +282,7 @@ export default function InventarioPage() {
       await loadProducts()
       setAddOpen(false)
       toast.success("Produto adicionado com sucesso.")
-    } catch {
+    } catch (error) {
       if (productCreated) {
         await loadProducts().catch(() => undefined)
         setAddOpen(false)
@@ -278,7 +290,12 @@ export default function InventarioPage() {
           ? "Produto criado, mas não foi possível lançar o estoque inicial. Ajuste o saldo editando o produto."
           : "Produto criado, mas não foi possível recarregar o inventário.")
       } else {
-        toast.error("Não foi possível adicionar o produto.")
+        const body: { code?: string } = error instanceof HTTPError
+          ? await error.response.clone().json().catch(() => ({}))
+          : {}
+        toast.error(body.code === "DUPLICATE_PRODUCT_BARCODE"
+          ? "Este código de barras já está cadastrado."
+          : "Não foi possível adicionar o produto.")
       }
     } finally {
       setSubmitting(false)
@@ -287,6 +304,10 @@ export default function InventarioPage() {
 
   async function handleEdit() {
     if (!selectedProduct || submitting) return
+    if (duplicateBarcode) {
+      toast.error(`Este código de barras já pertence a ${duplicateBarcode.name}.`)
+      return
+    }
     const service = selectedProduct.type === "service"
     const stock = service ? 0 : Number(form.stock) || 0
     const minStock = service ? 0 : Number(form.minStock) || 0
@@ -316,7 +337,7 @@ export default function InventarioPage() {
         headers: idempotencyHeaders(),
         json: {
           version: selectedProduct.version,
-          barcode: form.barcode || null,
+          barcode: normalizedBarcode || null,
           name: form.name,
           description: form.description,
           active: form.active,
@@ -348,7 +369,7 @@ export default function InventarioPage() {
       await loadProducts()
       setEditOpen(false)
       toast.success("Produto atualizado.")
-    } catch {
+    } catch (error) {
       if (productUpdated) {
         await loadProducts().catch(() => undefined)
         setEditOpen(false)
@@ -356,7 +377,12 @@ export default function InventarioPage() {
           ? "Os dados do produto foram atualizados, mas não foi possível ajustar o saldo de estoque."
           : "Produto atualizado, mas não foi possível recarregar o inventário.")
       } else {
-        toast.error("Não foi possível atualizar o produto.")
+        const body: { code?: string } = error instanceof HTTPError
+          ? await error.response.clone().json().catch(() => ({}))
+          : {}
+        toast.error(body.code === "DUPLICATE_PRODUCT_BARCODE"
+          ? "Este código de barras já está cadastrado."
+          : "Não foi possível atualizar o produto.")
       }
     } finally {
       setSubmitting(false)
@@ -528,14 +554,22 @@ export default function InventarioPage() {
           <DialogHeader>
             <DialogTitle>Novo Produto</DialogTitle>
           </DialogHeader>
-          <ProductFormFields form={form} onChange={setForm} categories={categories} units={units} />
+          <ProductFormFields
+            form={form}
+            onChange={setForm}
+            categories={categories}
+            units={units}
+            barcodeError={duplicateBarcode
+              ? `Código já cadastrado para ${duplicateBarcode.name}.`
+              : undefined}
+          />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setAddOpen(false)}>
               Cancelar
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={!form.name || submitting}
+              disabled={!form.name || !!duplicateBarcode || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar
@@ -556,6 +590,9 @@ export default function InventarioPage() {
             categories={categories}
             units={units}
             typeLocked
+            barcodeError={duplicateBarcode
+              ? `Código já cadastrado para ${duplicateBarcode.name}.`
+              : undefined}
           />
           <DialogFooter showCloseButton={false} className="sm:justify-between">
             <Button
@@ -576,7 +613,7 @@ export default function InventarioPage() {
               </Button>
               <Button
                 onClick={handleEdit}
-                disabled={!form.name || submitting}
+                disabled={!form.name || !!duplicateBarcode || submitting}
                 className="bg-(--color-accent) text-white"
               >
                 Salvar Alterações
@@ -673,12 +710,14 @@ function ProductFormFields({
   categories,
   units,
   typeLocked = false,
+  barcodeError,
 }: {
   form: ProductForm
   onChange: (f: ProductForm) => void
   categories: Category[]
   units: Unit[]
   typeLocked?: boolean
+  barcodeError?: string
 }) {
   const service = form.type === "service"
   const selectedUnit = units.find((unit) => unit.abbreviation === form.unit)
@@ -687,6 +726,22 @@ function ProductFormFields({
     : 1
   return (
     <div className="flex flex-col gap-4 py-2">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="product-barcode">Código de barras (opcional)</Label>
+        <Input
+          id="product-barcode"
+          placeholder="Ex: 7891234567890"
+          value={form.barcode}
+          aria-invalid={!!barcodeError}
+          aria-describedby={barcodeError ? "product-barcode-error" : undefined}
+          onChange={(e) => onChange({ ...form, barcode: e.target.value })}
+        />
+        {barcodeError && (
+          <span id="product-barcode-error" className="text-[12px] text-(--color-danger)">
+            {barcodeError}
+          </span>
+        )}
+      </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="product-name">Nome</Label>
         <Input
@@ -722,15 +777,6 @@ function ProductFormFields({
             <SelectItem value="service">Serviço</SelectItem>
           </SelectContent>
         </Select>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="product-barcode">Código de barras (opcional)</Label>
-        <Input
-          id="product-barcode"
-          placeholder="Ex: 7891234567890"
-          value={form.barcode}
-          onChange={(e) => onChange({ ...form, barcode: e.target.value })}
-        />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="flex flex-col gap-1.5">

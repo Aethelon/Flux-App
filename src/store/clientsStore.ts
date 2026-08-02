@@ -53,7 +53,7 @@ export const useClientsStore = create<ClientsStore>((set, get) => ({
       json: {
         name: input.name,
         email: input.email || null,
-        phone: input.phone || null,
+        phone: input.phone.trim(),
         status: input.status === "Ativo" ? "active" : "inactive",
       },
     }).json<ApiCustomer>())
@@ -69,7 +69,7 @@ export const useClientsStore = create<ClientsStore>((set, get) => ({
         version: current.version,
         name: input.name,
         email: input.email || null,
-        phone: input.phone || null,
+        phone: input.phone.trim(),
         status: input.status === "Ativo" ? "active" : "inactive",
       },
     }).json<ApiCustomer>())

@@ -336,7 +336,7 @@ export default function FuncionariosPage() {
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={!form.name || !form.email || form.password.length < 12 || submitting}
+              disabled={!form.name || !form.email || form.password.length < 8 || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar
@@ -439,7 +439,8 @@ function EmployeeFormFields({
         <Input
           id="employee-password"
           type="password"
-          placeholder="Mínimo de 12 caracteres"
+          maxLength={128}
+          placeholder="Mínimo de 8 caracteres"
           value={form.password}
           onChange={(e) => onChange({ ...form, password: e.target.value })}
         />

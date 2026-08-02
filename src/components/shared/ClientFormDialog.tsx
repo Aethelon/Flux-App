@@ -64,7 +64,7 @@ export function ClientFormDialog({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!form.name || submitting}
+            disabled={!form.name.trim() || !form.phone.trim() || submitting}
             className="bg-(--color-accent) text-white"
           >
             Salvar

@@ -395,6 +395,14 @@ export default function OrdensPage() {
   }
 
   async function handleSaveOrder() {
+    if (!form.title.trim()) {
+      toast.error("Informe o título da ordem.")
+      return
+    }
+    if (!form.columnId) {
+      toast.error("Selecione o status da ordem.")
+      return
+    }
     const customer = clients.find((client) => client.name === form.client)
     if (!customer) {
       toast.error("Selecione um cliente cadastrado.")
@@ -1013,13 +1021,16 @@ function OrderDialog({
           {isEdit ? "Editar ordem de serviço" : "Nova ordem de serviço"}
         </DialogTitle>
 
-        <input
-          aria-label="Título"
-          placeholder="Título da ordem de serviço"
-          value={form.title}
-          onChange={(e) => onChange({ ...form, title: e.target.value })}
-          className="w-full border-0 bg-transparent pr-10 text-[22px] font-semibold text-(--color-text-primary) outline-none placeholder:text-(--color-text-secondary) font-(family-name:--font-ui)"
-        />
+        <div className="flex flex-col gap-1.5 pr-10">
+          <Label htmlFor="order-title">Título</Label>
+          <Input
+            id="order-title"
+            placeholder="Título da ordem de serviço"
+            value={form.title}
+            onChange={(e) => onChange({ ...form, title: e.target.value })}
+            className="text-[18px] font-semibold"
+          />
+        </div>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-[1.5fr_1fr]">
           <div className="flex flex-col gap-1.5">
@@ -1119,7 +1130,6 @@ function OrderDialog({
             </Button>
             <Button
               onClick={onSave}
-              disabled={!form.title}
               className="bg-(--color-accent) text-white"
             >
               {isEdit ? "Salvar Alterações" : "Criar Ordem"}

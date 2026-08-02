@@ -53,9 +53,10 @@ export function ClientFormFields({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-phone">Telefone (opcional)</Label>
+        <Label htmlFor="client-phone">Telefone</Label>
         <Input
           id="client-phone"
+          required
           placeholder="(00) 00000-0000"
           value={form.phone}
           onChange={(e) => onChange({ ...form, phone: e.target.value })}

@@ -264,7 +264,7 @@ export default function ClientesPage() {
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={!form.name || submitting}
+              disabled={!form.name.trim() || !form.phone.trim() || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar
@@ -286,7 +286,7 @@ export default function ClientesPage() {
             </Button>
             <Button
               onClick={handleEdit}
-              disabled={!form.name || submitting}
+              disabled={!form.name.trim() || !form.phone.trim() || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar Alterações
