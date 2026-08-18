@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react"
 import {
   Search,
   Minus,
@@ -97,16 +97,31 @@ function toAmountString(value: number): string {
   return Math.max(0, value).toFixed(2).replace(".", ",")
 }
 
+// Normaliza texto para comparação de busca: remove acentos e caixa. Usado
+// tanto no código/nome/código de barras do produto quanto no termo digitado,
+// pra "café" bater com "cafe" e vice-versa.
+function normalize(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+}
+
 function ProductCard({
   product,
   qty,
+  highlighted,
   onAdd,
   onRemove,
+  cardRef,
 }: {
   product: Product
   qty: number
+  highlighted: boolean
   onAdd: () => void
   onRemove: () => void
+  cardRef: (el: HTMLButtonElement | null) => void
 }) {
   // Serviço não controla estoque: sempre disponível e sem limite de quantidade.
   const service = product.type === "service"
@@ -115,6 +130,7 @@ function ProductCard({
 
   return (
     <button
+      ref={cardRef}
       type="button"
       disabled={soldOut}
       onClick={onAdd}
@@ -124,7 +140,8 @@ function ProductCard({
           ? "cursor-not-allowed border-(--color-border) bg-(--color-surface-raised) opacity-50"
           : qty > 0
             ? "border-(--color-accent) bg-primary/5"
-            : "border-(--color-border) bg-(--color-surface-raised) hover:border-primary/50"
+            : "border-(--color-border) bg-(--color-surface-raised) hover:border-primary/50",
+        highlighted && "ring-2 ring-(--color-accent) ring-offset-2 ring-offset-(--color-surface)"
       )}
     >
       <div className="flex flex-col gap-0.5">
@@ -187,15 +204,20 @@ function OrderCard({
   order,
   selected,
   disabled,
+  highlighted,
   onToggle,
+  cardRef,
 }: {
   order: Order
   selected: boolean
   disabled: boolean
+  highlighted: boolean
   onToggle: () => void
+  cardRef: (el: HTMLButtonElement | null) => void
 }) {
   return (
     <button
+      ref={cardRef}
       type="button"
       disabled={disabled}
       onClick={onToggle}
@@ -205,7 +227,8 @@ function OrderCard({
           ? "border-(--color-accent) bg-primary/5"
           : disabled
             ? "cursor-not-allowed border-(--color-border) bg-(--color-surface-raised) opacity-50"
-            : "border-(--color-border) bg-(--color-surface-raised) hover:border-primary/50"
+            : "border-(--color-border) bg-(--color-surface-raised) hover:border-primary/50",
+        highlighted && "ring-2 ring-(--color-accent) ring-offset-2 ring-offset-(--color-surface)"
       )}
     >
       <div className="flex flex-col gap-0.5">
@@ -300,6 +323,11 @@ export default function FrenteDeCaixaPage() {
   const [orderCart, setOrderCart] = useState<string[]>([])
   const [search, setSearch] = useState("")
   const [category, setCategory] = useState("Todos")
+  // Índice do item destacado no grid (navegação por teclado). É clampado na
+  // renderização, então não precisa ficar 100% sincronizado a cada mudança
+  // de lista — só é reiniciado quando a busca ou a categoria mudam.
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   const [client, setClient] = useState("")
   const [discountMode, setDiscountMode] = useState<"valor" | "percent">("valor")
@@ -340,6 +368,16 @@ export default function FrenteDeCaixaPage() {
     ORDERS_CATEGORY,
   ]
 
+  function updateSearch(value: string) {
+    setSearch(value)
+    setSelectedIndex(0)
+  }
+
+  function selectCategory(value: string) {
+    setCategory(value)
+    setSelectedIndex(0)
+  }
+
   useEffect(() => {
     void Promise.all([loadProducts(), loadOrders(), loadClients(), loadCash()]).catch(() => {
       toast.error("Não foi possível carregar o catálogo.")
@@ -362,16 +400,16 @@ export default function FrenteDeCaixaPage() {
 
   const filteredCatalog = CATALOG.filter((p) => {
     if (category !== "Todos" && p.category !== category) return false
-    const q = search.trim().toLowerCase()
-    if (q && !p.name.toLowerCase().includes(q) && !p.barcode.includes(q)) return false
-    return true
+    const q = normalize(search)
+    if (!q) return true
+    const haystacks = [p.name, p.barcode, p.category]
+    return haystacks.some((value) => value && normalize(value).includes(q))
   })
 
   const filteredOrders = SELLABLE_ORDERS.filter((o) => {
-    const q = search.trim().toLowerCase()
-    if (q && !o.title.toLowerCase().includes(q) && !o.client.toLowerCase().includes(q))
-      return false
-    return true
+    const q = normalize(search)
+    if (!q) return true
+    return normalize(o.title).includes(q) || normalize(o.client).includes(q)
   })
 
   const productLines: CartLine[] = CATALOG.filter((p) => cart[p.id] > 0).map((p) => ({
@@ -463,7 +501,7 @@ export default function FrenteDeCaixaPage() {
       if (product.type !== "service" && current >= product.stock) return prev
       return { ...prev, [id]: current + 1 }
     })
-    setSearch("")
+    updateSearch("")
     window.setTimeout(() => searchInputRef.current?.focus(), 0)
   }
 
@@ -679,7 +717,7 @@ export default function FrenteDeCaixaPage() {
   // Atalho de teclado F2: avança para pagamento no passo 1, ou finaliza a
   // venda no passo 2 se o pagamento já estiver totalmente coberto.
   useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === "F2") {
         event.preventDefault()
         if (step === 1) {
@@ -693,6 +731,77 @@ export default function FrenteDeCaixaPage() {
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   })
+
+  // Quantas colunas o grid tem no momento — descoberto pela posição real dos
+  // cards na tela (offsetTop), então acompanha o breakpoint responsivo
+  // automaticamente sem precisar duplicar a lógica do Tailwind aqui.
+  function computeColumns(itemCount: number): number {
+    const first = cardRefs.current[0]
+    if (!first) return 1
+    const firstTop = first.offsetTop
+    let cols = 0
+    for (const el of cardRefs.current.slice(0, itemCount)) {
+      if (!el || el.offsetTop !== firstTop) break
+      cols++
+    }
+    return cols || 1
+  }
+
+  // Navegação do catálogo/ordens direto pelo campo de busca: setas para
+  // mover o destaque, Enter adiciona o item destacado (cobre também o leitor
+  // de código de barras, que digita o código + Enter), Esc limpa a busca e
+  // Alt+←/→ troca de categoria sem precisar soltar o teclado.
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault()
+      const currentIndex = CATEGORIES.indexOf(category)
+      const nextIndex = event.key === "ArrowRight"
+        ? (currentIndex + 1) % CATEGORIES.length
+        : (currentIndex - 1 + CATEGORIES.length) % CATEGORIES.length
+      selectCategory(CATEGORIES[nextIndex])
+      return
+    }
+
+    if (event.key === "Escape") {
+      if (search) {
+        event.preventDefault()
+        updateSearch("")
+      }
+      return
+    }
+
+    const list = showingOrders ? filteredOrders : filteredCatalog
+    if (list.length === 0) return
+
+    if (event.key === "Enter") {
+      event.preventDefault()
+      const index = Math.min(selectedIndex, list.length - 1)
+      if (showingOrders) {
+        const order = filteredOrders[index]
+        if (order && !(orderClientLock && order.client !== orderClientLock)) {
+          toggleOrder(order.id)
+        }
+      } else {
+        addOne(filteredCatalog[index].id)
+      }
+      return
+    }
+
+    let next = selectedIndex
+    if (event.key === "ArrowRight") next = selectedIndex + 1
+    else if (event.key === "ArrowLeft") next = selectedIndex - 1
+    else if (event.key === "ArrowDown") next = selectedIndex + computeColumns(list.length)
+    else if (event.key === "ArrowUp") next = selectedIndex - computeColumns(list.length)
+    else return
+
+    event.preventDefault()
+    next = Math.max(0, Math.min(list.length - 1, next))
+    setSelectedIndex(next)
+    cardRefs.current[next]?.scrollIntoView({ block: "nearest" })
+  }
+
+  const activeList = showingOrders ? filteredOrders : filteredCatalog
+  const activeIndex = Math.min(selectedIndex, activeList.length - 1)
 
   return (
     <div className="-mb-6 flex h-[calc(100dvh-var(--header-height)-3.5rem)] flex-col gap-4">
@@ -723,56 +832,86 @@ export default function FrenteDeCaixaPage() {
       <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[1fr_400px]">
         {/* Catálogo de produtos / ordens */}
         <div className="flex min-h-0 flex-col gap-4 rounded-2xl border border-(--color-border) bg-(--color-surface) p-4">
-          <div className="flex items-center gap-3">
-            {/* Faixa de categorias rolável na horizontal; "Ordens" fica
-                destacada (cor de acento + ícone) por não ser categoria de produto. */}
-            <div className="flex w-1/2 max-w-[540px] shrink-0 items-center gap-1 overflow-x-auto rounded-lg bg-(--color-surface-raised) p-1 scrollbar-none">
-              {CATEGORIES.map((c) => {
-                const isOrders = c === ORDERS_CATEGORY
-                const active = category === c
-                return (
-                  <Fragment key={c}>
-                    {isOrders && (
-                      <span className="mx-0.5 h-5 w-px shrink-0 bg-(--color-border)" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setCategory(c)}
-                      className={cn(
-                        "flex shrink-0 items-center gap-1 rounded-md px-3 py-1 text-[12px] font-medium transition-colors",
-                        isOrders
-                          ? active
-                            ? "bg-(--color-accent) text-white shadow-sm"
-                            : "text-(--color-accent) hover:bg-primary/10"
-                          : active
-                            ? "bg-(--color-surface) text-(--color-text-primary) shadow-sm"
-                            : "text-(--color-text-secondary) hover:text-(--color-text-primary)"
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-3">
+              {/* Faixa de categorias rolável na horizontal; "Ordens" fica
+                  destacada (cor de acento + ícone) por não ser categoria de produto. */}
+              <div className="flex w-1/2 max-w-[540px] shrink-0 items-center gap-1 overflow-x-auto rounded-lg bg-(--color-surface-raised) p-1 scrollbar-none">
+                {CATEGORIES.map((c) => {
+                  const isOrders = c === ORDERS_CATEGORY
+                  const active = category === c
+                  return (
+                    <Fragment key={c}>
+                      {isOrders && (
+                        <span className="mx-0.5 h-5 w-px shrink-0 bg-(--color-border)" />
                       )}
-                    >
-                      {isOrders && <ClipboardList size={13} />}
-                      {c}
-                    </button>
-                  </Fragment>
-                )
-              })}
+                      <button
+                        type="button"
+                        onClick={() => selectCategory(c)}
+                        className={cn(
+                          "flex shrink-0 items-center gap-1 rounded-md px-3 py-1 text-[12px] font-medium transition-colors",
+                          isOrders
+                            ? active
+                              ? "bg-(--color-accent) text-white shadow-sm"
+                              : "text-(--color-accent) hover:bg-primary/10"
+                            : active
+                              ? "bg-(--color-surface) text-(--color-text-primary) shadow-sm"
+                              : "text-(--color-text-secondary) hover:text-(--color-text-primary)"
+                        )}
+                      >
+                        {isOrders && <ClipboardList size={13} />}
+                        {c}
+                      </button>
+                    </Fragment>
+                  )
+                })}
+              </div>
+
+              <div className="relative flex-1">
+                <Search
+                  size={15}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--color-text-secondary)"
+                />
+                <Input
+                  ref={searchInputRef}
+                  value={search}
+                  onChange={(e) => updateSearch(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder={
+                    showingOrders
+                      ? "Buscar ordem: título ou cliente"
+                      : "Buscar produto: código, nome, código de barras ou categoria"
+                  }
+                  className="h-9 pl-8"
+                />
+              </div>
             </div>
 
-            <div className="relative flex-1">
-              <Search
-                size={15}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--color-text-secondary)"
-              />
-              <Input
-                ref={searchInputRef}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={
-                  showingOrders
-                    ? "Buscar ordem: título ou cliente"
-                    : "Buscar produto: código de barras ou nome"
-                }
-                className="h-9 pl-8"
-              />
+            <div className="hidden items-center gap-3 text-[11px] text-(--color-text-secondary) sm:flex">
+              <span className="flex items-center gap-1">
+                <kbd className="rounded border border-(--color-border) bg-(--color-surface-raised) px-1.5 py-0.5 font-sans">
+                  ↑↓←→
+                </kbd>
+                navegar
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="rounded border border-(--color-border) bg-(--color-surface-raised) px-1.5 py-0.5 font-sans">
+                  Enter
+                </kbd>
+                adicionar
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="rounded border border-(--color-border) bg-(--color-surface-raised) px-1.5 py-0.5 font-sans">
+                  Esc
+                </kbd>
+                limpar busca
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="rounded border border-(--color-border) bg-(--color-surface-raised) px-1.5 py-0.5 font-sans">
+                  Alt+←/→
+                </kbd>
+                trocar categoria
+              </span>
             </div>
           </div>
 
@@ -780,13 +919,17 @@ export default function FrenteDeCaixaPage() {
             {showingOrders ? (
               filteredOrders.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-                  {filteredOrders.map((o) => (
+                  {filteredOrders.map((o, i) => (
                     <OrderCard
                       key={o.id}
                       order={o}
                       selected={orderCart.includes(o.id)}
                       disabled={orderClientLock !== null && o.client !== orderClientLock}
+                      highlighted={i === activeIndex}
                       onToggle={() => toggleOrder(o.id)}
+                      cardRef={(el) => {
+                        cardRefs.current[i] = el
+                      }}
                     />
                   ))}
                 </div>
@@ -800,13 +943,17 @@ export default function FrenteDeCaixaPage() {
               )
             ) : filteredCatalog.length > 0 ? (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-                {filteredCatalog.map((p) => (
+                {filteredCatalog.map((p, i) => (
                   <ProductCard
                     key={p.id}
                     product={p}
                     qty={cart[p.id] ?? 0}
+                    highlighted={i === activeIndex}
                     onAdd={() => addOne(p.id)}
                     onRemove={() => removeOne(p.id)}
+                    cardRef={(el) => {
+                      cardRefs.current[i] = el
+                    }}
                   />
                 ))}
               </div>
