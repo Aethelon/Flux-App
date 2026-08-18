@@ -118,6 +118,13 @@ const EMPTY_FORM: ProductForm = {
   active: true,
 }
 
+const PRODUCT_TYPE_LABELS: Record<Product["type"], string> = {
+  finished_product: "Produto acabado",
+  raw_material: "Matéria-prima",
+  packaging: "Embalagem",
+  service: "Serviço",
+}
+
 function matchesQuantityScale(value: number, scale: number) {
   const factor = 10 ** scale
   return Math.abs((value * factor) - Math.round(value * factor)) < 1e-9
@@ -768,7 +775,7 @@ function ProductFormFields({
           onValueChange={(value) => onChange({ ...form, type: value as Product["type"] })}
         >
           <SelectTrigger id="product-type" className="w-full">
-            <SelectValue />
+            <SelectValue>{PRODUCT_TYPE_LABELS[form.type]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="finished_product">Produto acabado</SelectItem>
