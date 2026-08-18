@@ -399,7 +399,7 @@ function RecommendationActions({
           ? "bg-(--color-success)/15 text-(--color-success)"
           : "bg-(--color-danger)/15 text-(--color-danger)"
       )}>
-        {recommendation.state === "accepted" && recommendation.type === "overstock_review"
+        {recommendation.state === "accepted" && recommendation.type !== "promotion"
           ? "Revisada"
           : STATE_LABEL[recommendation.state]}
       </span>
@@ -429,11 +429,11 @@ function RecommendationActions({
       <Button
         size="sm"
         disabled={reviewing}
-        aria-label={`${recommendation.type === "overstock_review" ? "Revisar" : "Aplicar"} recomendação para ${recommendation.product.name}`}
+        aria-label={`${recommendation.type === "promotion" ? "Aplicar" : "Revisar"} recomendação para ${recommendation.product.name}`}
         onClick={() => void review("accepted")}
       >
         {reviewing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-        {recommendation.type === "overstock_review" ? "Revisar" : "Aplicar"}
+        {recommendation.type === "promotion" ? "Aplicar" : "Revisar"}
       </Button>
     </div>
   )
