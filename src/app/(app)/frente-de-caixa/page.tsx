@@ -89,6 +89,7 @@ interface CartLine {
   type: "produto" | "servico"
 }
 
+
 const INSTALLMENTS = Array.from({ length: 12 }, (_, i) => i + 1)
 
 // Formata um número para o texto que o input de valor espera (ex.: 1234.5 -> "1234,50").
@@ -367,6 +368,16 @@ export default function FrenteDeCaixaPage() {
     ORDERS_CATEGORY,
   ]
 
+  function updateSearch(value: string) {
+    setSearch(value)
+    setSelectedIndex(0)
+  }
+
+  function selectCategory(value: string) {
+    setCategory(value)
+    setSelectedIndex(0)
+  }
+
   useEffect(() => {
     void Promise.all([loadProducts(), loadOrders(), loadClients(), loadCash()]).catch(() => {
       toast.error("Não foi possível carregar o catálogo.")
@@ -384,18 +395,6 @@ export default function FrenteDeCaixaPage() {
       return () => window.clearTimeout(timer)
     }
   }, [step, pendingMethod])
-
-  // Reinicia o destaque do teclado sempre que o termo buscado ou a categoria
-  // mudam — o primeiro resultado passa a ser o destacado, o que também é o
-  // que faz o fluxo de leitor de código de barras funcionar (digitou +
-  // Enter = adiciona o único resultado que sobrou).
-  // Ajuste feito durante a renderização (padrão React) em vez de useEffect,
-// evitando o render extra de "setState dentro de efeito".
-const [prevSearchCategory, setPrevSearchCategory] = useState([search, category])
-if (prevSearchCategory[0] !== search || prevSearchCategory[1] !== category) {
-  setPrevSearchCategory([search, category])
-  setSelectedIndex(0)
-}
 
   const showingOrders = category === ORDERS_CATEGORY
 
@@ -502,7 +501,7 @@ if (prevSearchCategory[0] !== search || prevSearchCategory[1] !== category) {
       if (product.type !== "service" && current >= product.stock) return prev
       return { ...prev, [id]: current + 1 }
     })
-    setSearch("")
+    updateSearch("")
     window.setTimeout(() => searchInputRef.current?.focus(), 0)
   }
 
@@ -736,12 +735,12 @@ if (prevSearchCategory[0] !== search || prevSearchCategory[1] !== category) {
   // Quantas colunas o grid tem no momento — descoberto pela posição real dos
   // cards na tela (offsetTop), então acompanha o breakpoint responsivo
   // automaticamente sem precisar duplicar a lógica do Tailwind aqui.
-  function computeColumns(): number {
+  function computeColumns(itemCount: number): number {
     const first = cardRefs.current[0]
     if (!first) return 1
     const firstTop = first.offsetTop
     let cols = 0
-    for (const el of cardRefs.current) {
+    for (const el of cardRefs.current.slice(0, itemCount)) {
       if (!el || el.offsetTop !== firstTop) break
       cols++
     }
@@ -759,14 +758,14 @@ if (prevSearchCategory[0] !== search || prevSearchCategory[1] !== category) {
       const nextIndex = event.key === "ArrowRight"
         ? (currentIndex + 1) % CATEGORIES.length
         : (currentIndex - 1 + CATEGORIES.length) % CATEGORIES.length
-      setCategory(CATEGORIES[nextIndex])
+      selectCategory(CATEGORIES[nextIndex])
       return
     }
 
     if (event.key === "Escape") {
       if (search) {
         event.preventDefault()
-        setSearch("")
+        updateSearch("")
       }
       return
     }
@@ -791,8 +790,8 @@ if (prevSearchCategory[0] !== search || prevSearchCategory[1] !== category) {
     let next = selectedIndex
     if (event.key === "ArrowRight") next = selectedIndex + 1
     else if (event.key === "ArrowLeft") next = selectedIndex - 1
-    else if (event.key === "ArrowDown") next = selectedIndex + computeColumns()
-    else if (event.key === "ArrowUp") next = selectedIndex - computeColumns()
+    else if (event.key === "ArrowDown") next = selectedIndex + computeColumns(list.length)
+    else if (event.key === "ArrowUp") next = selectedIndex - computeColumns(list.length)
     else return
 
     event.preventDefault()
@@ -848,7 +847,7 @@ if (prevSearchCategory[0] !== search || prevSearchCategory[1] !== category) {
                       )}
                       <button
                         type="button"
-                        onClick={() => setCategory(c)}
+                        onClick={() => selectCategory(c)}
                         className={cn(
                           "flex shrink-0 items-center gap-1 rounded-md px-3 py-1 text-[12px] font-medium transition-colors",
                           isOrders
@@ -876,7 +875,7 @@ if (prevSearchCategory[0] !== search || prevSearchCategory[1] !== category) {
                 <Input
                   ref={searchInputRef}
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => updateSearch(e.target.value)}
                   onKeyDown={handleSearchKeyDown}
                   placeholder={
                     showingOrders
