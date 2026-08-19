@@ -331,14 +331,14 @@ export default function FrenteDeCaixaPage() {
 
   const [client, setClient] = useState("")
   const [discountMode, setDiscountMode] = useState<"valor" | "percent">("valor")
-  const [discountInput, setDiscountInput] = useState("")
+  const [discountInput, setDiscountInput] = useState("0,00")
 
   const [step, setStep] = useState<1 | 2>(1)
   const [payments, setPayments] = useState<PaymentEntry[]>([])
   // Forma de pagamento em configuração: nada aqui conta para o total pago até
   // o usuário clicar em "Adicionar" — só então vira uma entrada em `payments`.
   const [pendingMethod, setPendingMethod] = useState<MethodKey | null>(null)
-  const [pendingAmount, setPendingAmount] = useState("")
+  const [pendingAmount, setPendingAmount] = useState("0,00")
   const [pendingInstallments, setPendingInstallments] = useState(1)
   // Se estiver diferente de null, "Adicionar" edita essa entrada já
   // existente em vez de criar uma nova.
@@ -473,7 +473,7 @@ export default function FrenteDeCaixaPage() {
   // build — envolver manualmente aqui só conflita com a análise dele.
   function cancelPending() {
     setPendingMethod(null)
-    setPendingAmount("")
+    setPendingAmount("0,00")
     setPendingInstallments(1)
     setEditingEntryId(null)
   }
@@ -617,7 +617,7 @@ export default function FrenteDeCaixaPage() {
     setOrderCart([])
     setPayments([])
     cancelPending()
-    setDiscountInput("")
+    setDiscountInput("0,00")
     setClient("")
     setStep(1)
   }
@@ -637,7 +637,7 @@ export default function FrenteDeCaixaPage() {
 
   function handleDiscountMode(mode: "valor" | "percent") {
     setDiscountMode(mode)
-    setDiscountInput("")
+    setDiscountInput("0,00")
     if (step === 2) {
       setPayments([])
       cancelPending()
@@ -994,7 +994,7 @@ export default function FrenteDeCaixaPage() {
                   cartLines.length === 0 &&
                   payments.length === 0 &&
                   !pendingMethod &&
-                  !discountInput &&
+                  parsePriceInput(discountInput) <= 0 &&
                   !client
                 }
                 title="Limpar pedido"

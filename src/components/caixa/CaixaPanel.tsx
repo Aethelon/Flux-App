@@ -109,7 +109,7 @@ export function AbrirCaixaDialog({
 }) {
   const operador = useOperadorLogado()
   const abrirCaixa = useCaixaStore((s) => s.abrirCaixa)
-  const [valor, setValor] = useState("")
+  const [valor, setValor] = useState("0,00")
   const [submitting, setSubmitting] = useState(false)
 
   async function handleConfirm() {
@@ -123,7 +123,7 @@ export function AbrirCaixaDialog({
     try {
       await abrirCaixa(operador, parsed)
       toast.success(`Caixa aberto com ${formatCurrency(parsed)} de fundo de troco.`)
-      setValor("")
+      setValor("0,00")
       onOpenChange(false)
     } catch {
       toast.error("Não foi possível abrir o caixa.")
@@ -242,7 +242,7 @@ function MovimentacaoDialog({
   const operador = useOperadorLogado()
   const registrarMovimentacao = useCaixaStore((s) => s.registrarMovimentacao)
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
-  const [valor, setValor] = useState("")
+  const [valor, setValor] = useState("0,00")
   const [motivo, setMotivo] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const label = tipo === "sangria" ? "Sangria" : "Suprimento"
@@ -269,7 +269,7 @@ function MovimentacaoDialog({
     try {
       await registrarMovimentacao(tipo, parsed, motivo.trim(), operador)
       toast.success(`${label} de ${formatCurrency(parsed)} registrada.`)
-      setValor("")
+      setValor("0,00")
       setMotivo("")
       onOpenChange(false)
     } catch {
@@ -432,10 +432,10 @@ export function FecharCaixaDialog({
   const sessao = useCaixaStore((s) => s.sessaoAtual)
   const fecharCaixa = useCaixaStore((s) => s.fecharCaixa)
   const [valores, setValores] = useState<ValoresFechamento>({
-    dinheiro: "",
-    cartao_credito: "",
-    cartao_debito: "",
-    pix: "",
+    dinheiro: "0,00",
+    cartao_credito: "0,00",
+    cartao_debito: "0,00",
+    pix: "0,00",
   })
   const [submitting, setSubmitting] = useState(false)
 
@@ -450,7 +450,7 @@ export function FecharCaixaDialog({
   async function handleConfirm() {
     if (submitting) return
     const valoresInformados = Object.values(valores)
-    if (!valoresInformados.some((valor) => /\d/.test(valor))) {
+    if (!valoresInformados.some((valor) => parsePriceInput(valor) > 0)) {
       toast.error("Informe ao menos um valor para fechar o caixa.")
       return
     }
@@ -483,7 +483,7 @@ export function FecharCaixaDialog({
         porMetodo,
       })
       toast.success("Caixa fechado com sucesso.")
-      setValores({ dinheiro: "", cartao_credito: "", cartao_debito: "", pix: "" })
+      setValores({ dinheiro: "0,00", cartao_credito: "0,00", cartao_debito: "0,00", pix: "0,00" })
       onOpenChange(false)
     } catch {
       toast.error("Não foi possível fechar o caixa.")

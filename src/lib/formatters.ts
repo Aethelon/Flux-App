@@ -24,7 +24,7 @@ export function formatPriceInput(value: number): string {
 
 function formatCentsInput(value: string, maximum?: number): string {
   const digits = value.replace(/\D/g, "")
-  if (!digits) return ""
+  if (!digits) return formatPriceInput(0)
 
   const amount = Number(digits) / 100
   const normalized = maximum === undefined ? amount : Math.min(maximum, amount)
@@ -36,16 +36,7 @@ export function formatMoneyInput(value: string): string {
 }
 
 export function formatPercentInput(value: string): string {
-  const normalized = value.replace(".", ",")
-  const [integerPart = "", decimalPart = ""] = normalized.split(",", 2)
-  const amount = Number(integerPart.replace(/\D/g, ""))
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return integerPart.replace(/\D/g, "") ? "0" : ""
-  }
-  if (amount >= 100) return "100"
-
-  const decimal = decimalPart.replace(/\D/g, "").slice(0, 2)
-  return decimal ? `${amount},${decimal}` : String(amount)
+  return formatCentsInput(value, 100)
 }
 
 export function phoneDigits(phone: string): string {
