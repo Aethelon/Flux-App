@@ -32,6 +32,7 @@ import {
   List,
 } from "lucide-react"
 import { toast } from "sonner"
+import { HTTPError } from "ky"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
 import { FilterDropdown } from "@/components/shared/FilterDropdown"
@@ -243,19 +244,25 @@ export default function OrdensPage() {
       if (oldIndex === -1 || newIndex === -1) return
       const reordered = arrayMove(columns, oldIndex, newIndex)
       setColumns(reordered)
-      void Promise.all(reordered.map((column, index) =>
-        column.displayPosition === index
-          ? Promise.resolve()
-          : api.patch(`service-order-columns/${column.id}`, {
-              headers: idempotencyHeaders(),
-              json: {
-                version: column.version,
-                displayPosition: index,
-              },
-            })
-      )).then(loadOrders)
-        .catch(() => {
-          toast.error("Não foi possível reordenar as colunas.")
+      void api.post("service-order-columns/reorder", {
+        headers: idempotencyHeaders(),
+        json: {
+          columns: reordered.map((column) => ({
+            id: column.id,
+            version: column.version,
+          })),
+        },
+      }).then(loadOrders)
+        .catch(async (error: unknown) => {
+          if (error instanceof HTTPError) {
+            const body = await error.response.json<{ code?: string }>().catch(() => null)
+            if (body?.code === "COLUMN_REORDER_CONFLICT") {
+              toast.error("As colunas foram alteradas. O quadro foi atualizado; tente novamente.")
+              void loadOrders()
+              return
+            }
+          }
+          toast.error("Não foi possível salvar a nova ordem das colunas.")
           void loadOrders()
         })
       return
