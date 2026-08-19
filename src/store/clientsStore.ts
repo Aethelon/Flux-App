@@ -2,6 +2,7 @@
 
 import { create } from "zustand"
 import { api, fetchAllPages, idempotencyHeaders } from "@/lib/api"
+import { formatPhone, phoneDigits } from "@/lib/formatters"
 import type { Client } from "@/types/client"
 
 interface ApiCustomer {
@@ -19,7 +20,7 @@ function client(customer: ApiCustomer): Client {
     id: customer.id,
     name: customer.name,
     email: customer.email ?? "",
-    phone: customer.phone ?? "",
+    phone: formatPhone(customer.phone ?? ""),
     status: customer.status === "active" ? "Ativo" : "Inativo",
     version: customer.version,
     createdAt: customer.createdAt,
@@ -53,7 +54,7 @@ export const useClientsStore = create<ClientsStore>((set, get) => ({
       json: {
         name: input.name,
         email: input.email || null,
-        phone: input.phone.trim(),
+        phone: phoneDigits(input.phone),
         status: input.status === "Ativo" ? "active" : "inactive",
       },
     }).json<ApiCustomer>())
@@ -69,7 +70,7 @@ export const useClientsStore = create<ClientsStore>((set, get) => ({
         version: current.version,
         name: input.name,
         email: input.email || null,
-        phone: input.phone.trim(),
+        phone: phoneDigits(input.phone),
         status: input.status === "Ativo" ? "active" : "inactive",
       },
     }).json<ApiCustomer>())

@@ -38,6 +38,7 @@ import {
   SelectItem,
 } from "@/components/ui/select"
 import type { Employee } from "@/types/employee"
+import { formatPhone, formatPhoneInput, phoneDigits } from "@/lib/formatters"
 
 interface ApiEmployee {
   id: string
@@ -55,7 +56,7 @@ function employee(value: ApiEmployee): Employee {
     id: value.id,
     name: value.name,
     email: value.email,
-    phone: value.phone ?? "",
+    phone: formatPhone(value.phone ?? ""),
     role: value.role === "admin" ? "Administrador" : "Funcionário",
     status: value.status === "active" ? "Ativo" : "Inativo",
     version: value.version,
@@ -170,7 +171,7 @@ export default function FuncionariosPage() {
         json: {
           name: form.name,
           email: form.email,
-          phone: form.phone || null,
+          phone: phoneDigits(form.phone) || null,
           role: form.role === "Administrador" ? "admin" : "funcionario",
           status: form.status === "Ativo" ? "active" : "inactive",
           password: form.password,
@@ -196,7 +197,7 @@ export default function FuncionariosPage() {
           version: selectedEmployee.version,
           name: form.name,
           email: form.email,
-          phone: form.phone || null,
+          phone: phoneDigits(form.phone) || null,
           role: form.role === "Administrador" ? "admin" : "funcionario",
           status: form.status === "Ativo" ? "active" : "inactive",
           ...(form.password ? { password: form.password } : {}),
@@ -431,7 +432,7 @@ function EmployeeFormFields({
           id="employee-phone"
           placeholder="(00) 00000-0000"
           value={form.phone}
-          onChange={(e) => onChange({ ...form, phone: e.target.value })}
+          onChange={(e) => onChange({ ...form, phone: formatPhoneInput(e.target.value) })}
         />
       </div>
       <div className="flex flex-col gap-1.5">

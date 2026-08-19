@@ -66,7 +66,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
-import { formatCurrency, formatPriceInput, parsePriceInput } from "@/lib/formatters"
+import { formatCurrency, formatMoneyInput, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { useFontSizeStore, FONT_SIZE_SCALE } from "@/store/fontSizeStore"
 import { useClientsStore } from "@/store/clientsStore"
@@ -1085,7 +1085,7 @@ function OrderDialog({
                 placeholder="Ex: 250,00"
                 value={form.value}
                 onChange={(e) =>
-                  onChange({ ...form, value: e.target.value.replace(/[^\d.,]/g, "") })
+                  onChange({ ...form, value: formatMoneyInput(e.target.value) })
                 }
               />
             </div>

@@ -29,7 +29,7 @@ import {
   SelectItem,
 } from "@/components/ui/select"
 import { ClientCombobox } from "@/components/shared/ClientCombobox"
-import { formatCurrency, parsePriceInput } from "@/lib/formatters"
+import { formatCurrency, formatMoneyInput, formatPercentInput, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { describePayment, type Payment } from "@/types/payment"
 import type { Product } from "@/types/product"
@@ -94,7 +94,7 @@ const INSTALLMENTS = Array.from({ length: 12 }, (_, i) => i + 1)
 
 // Formata um número para o texto que o input de valor espera (ex.: 1234.5 -> "1234,50").
 function toAmountString(value: number): string {
-  return Math.max(0, value).toFixed(2).replace(".", ",")
+  return formatPriceInput(Math.max(0, value))
 }
 
 // Normaliza texto para comparação de busca: remove acentos e caixa. Usado
@@ -623,8 +623,9 @@ export default function FrenteDeCaixaPage() {
   }
 
   function handleDiscountInput(value: string) {
-    const clean = value.replace(/[^\d.,]/g, "")
-    setDiscountInput(clean)
+    setDiscountInput(
+      discountMode === "percent" ? formatPercentInput(value) : formatMoneyInput(value)
+    )
     // O desconto vive no passo 2 e altera o total: zera as formas de
     // pagamento adicionadas para o usuário realocar sobre o novo total
     // (nada fica pré-adicionado).
@@ -636,6 +637,7 @@ export default function FrenteDeCaixaPage() {
 
   function handleDiscountMode(mode: "valor" | "percent") {
     setDiscountMode(mode)
+    setDiscountInput("")
     if (step === 2) {
       setPayments([])
       cancelPending()
@@ -1122,7 +1124,7 @@ export default function FrenteDeCaixaPage() {
                       inputMode="decimal"
                       value={discountInput}
                       onChange={(e) => handleDiscountInput(e.target.value)}
-                      placeholder={discountMode === "percent" ? "p. ex. 10" : "p. ex. 25,00"}
+                      placeholder={discountMode === "percent" ? "p. ex. 10,00" : "p. ex. 25,00"}
                       className="h-9 flex-1"
                     />
                   </div>
@@ -1193,9 +1195,7 @@ export default function FrenteDeCaixaPage() {
                           ref={paymentAmountInputRef}
                           inputMode="decimal"
                           value={pendingAmount}
-                          onChange={(e) =>
-                            setPendingAmount(e.target.value.replace(/[^\d.,]/g, ""))
-                          }
+                          onChange={(e) => setPendingAmount(formatMoneyInput(e.target.value))}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault()

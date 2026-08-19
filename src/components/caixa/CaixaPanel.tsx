@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { formatCurrency, parsePriceInput } from "@/lib/formatters"
+import { formatCurrency, formatMoneyInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { DataTable, type Column } from "@/components/shared/DataTable"
 import {
@@ -145,7 +145,7 @@ export function AbrirCaixaDialog({
             inputMode="decimal"
             autoFocus
             value={valor}
-            onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ""))}
+            onChange={(e) => setValor(formatMoneyInput(e.target.value))}
             placeholder="0,00"
           />
           <span className="text-[12px] text-(--color-text-secondary)">
@@ -293,7 +293,7 @@ function MovimentacaoDialog({
               inputMode="decimal"
               autoFocus
               value={valor}
-              onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ""))}
+              onChange={(e) => setValor(formatMoneyInput(e.target.value))}
               placeholder="0,00"
             />
           </div>
@@ -444,7 +444,7 @@ export function FecharCaixaDialog({
   const sessaoAtual = sessao
 
   function handleChange(chave: keyof ValoresFechamento, valor: string) {
-    setValores((prev) => ({ ...prev, [chave]: valor.replace(/[^\d.,]/g, "") }))
+    setValores((prev) => ({ ...prev, [chave]: formatMoneyInput(valor) }))
   }
 
   async function handleConfirm() {
