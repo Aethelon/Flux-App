@@ -140,14 +140,20 @@ export function AbrirCaixaDialog({
         </DialogHeader>
         <div className="flex flex-col gap-2 py-2">
           <Label htmlFor="valor-abertura">Valor de abertura (fundo de troco)</Label>
-          <Input
-            id="valor-abertura"
-            inputMode="decimal"
-            autoFocus
-            value={valor}
-            onChange={(e) => setValor(formatMoneyInput(e.target.value))}
-            placeholder="0,00"
-          />
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-(--color-text-secondary)">
+              R$
+            </span>
+            <Input
+              id="valor-abertura"
+              inputMode="decimal"
+              autoFocus
+              value={valor}
+              onChange={(e) => setValor(formatMoneyInput(e.target.value))}
+              placeholder="0,00"
+              className="pl-8"
+            />
+          </div>
           <span className="text-[12px] text-(--color-text-secondary)">
             Operador: {operador}
           </span>
@@ -512,15 +518,20 @@ export function FecharCaixaDialog({
                 <span className="text-[14px] font-medium text-(--color-text-primary)">
                   {METODO_LABEL[metodo]}
                 </span>
-                <Input
-                  id={`valor-${metodo}`}
-                  inputMode="decimal"
-                  autoFocus={metodo === "dinheiro"}
-                  value={valores[metodo]}
-                  onChange={(e) => handleChange(metodo, e.target.value)}
-                  placeholder="0,00"
-                  className="w-36"
-                />
+                <div className="relative w-36">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-(--color-text-secondary)">
+                    R$
+                  </span>
+                  <Input
+                    id={`valor-${metodo}`}
+                    inputMode="decimal"
+                    autoFocus={metodo === "dinheiro"}
+                    value={valores[metodo]}
+                    onChange={(e) => handleChange(metodo, e.target.value)}
+                    placeholder="0,00"
+                    className="pl-8"
+                  />
+                </div>
               </div>
             ))}
           </div>
