@@ -29,7 +29,7 @@ import {
   SelectItem,
 } from "@/components/ui/select"
 import { ClientCombobox } from "@/components/shared/ClientCombobox"
-import { formatCurrency, parsePriceInput } from "@/lib/formatters"
+import { formatCurrency, formatMoneyInput, formatPercentInput, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { describePayment, type Payment } from "@/types/payment"
 import type { Product } from "@/types/product"
@@ -94,7 +94,7 @@ const INSTALLMENTS = Array.from({ length: 12 }, (_, i) => i + 1)
 
 // Formata um número para o texto que o input de valor espera (ex.: 1234.5 -> "1234,50").
 function toAmountString(value: number): string {
-  return Math.max(0, value).toFixed(2).replace(".", ",")
+  return formatPriceInput(Math.max(0, value))
 }
 
 // Normaliza texto para comparação de busca: remove acentos e caixa. Usado
@@ -331,14 +331,14 @@ export default function FrenteDeCaixaPage() {
 
   const [client, setClient] = useState("")
   const [discountMode, setDiscountMode] = useState<"valor" | "percent">("valor")
-  const [discountInput, setDiscountInput] = useState("")
+  const [discountInput, setDiscountInput] = useState("0,00")
 
   const [step, setStep] = useState<1 | 2>(1)
   const [payments, setPayments] = useState<PaymentEntry[]>([])
   // Forma de pagamento em configuração: nada aqui conta para o total pago até
   // o usuário clicar em "Adicionar" — só então vira uma entrada em `payments`.
   const [pendingMethod, setPendingMethod] = useState<MethodKey | null>(null)
-  const [pendingAmount, setPendingAmount] = useState("")
+  const [pendingAmount, setPendingAmount] = useState("0,00")
   const [pendingInstallments, setPendingInstallments] = useState(1)
   // Se estiver diferente de null, "Adicionar" edita essa entrada já
   // existente em vez de criar uma nova.
@@ -473,7 +473,7 @@ export default function FrenteDeCaixaPage() {
   // build — envolver manualmente aqui só conflita com a análise dele.
   function cancelPending() {
     setPendingMethod(null)
-    setPendingAmount("")
+    setPendingAmount("0,00")
     setPendingInstallments(1)
     setEditingEntryId(null)
   }
@@ -617,14 +617,15 @@ export default function FrenteDeCaixaPage() {
     setOrderCart([])
     setPayments([])
     cancelPending()
-    setDiscountInput("")
+    setDiscountInput("0,00")
     setClient("")
     setStep(1)
   }
 
   function handleDiscountInput(value: string) {
-    const clean = value.replace(/[^\d.,]/g, "")
-    setDiscountInput(clean)
+    setDiscountInput(
+      discountMode === "percent" ? formatPercentInput(value) : formatMoneyInput(value)
+    )
     // O desconto vive no passo 2 e altera o total: zera as formas de
     // pagamento adicionadas para o usuário realocar sobre o novo total
     // (nada fica pré-adicionado).
@@ -636,6 +637,7 @@ export default function FrenteDeCaixaPage() {
 
   function handleDiscountMode(mode: "valor" | "percent") {
     setDiscountMode(mode)
+    setDiscountInput("0,00")
     if (step === 2) {
       setPayments([])
       cancelPending()
@@ -992,7 +994,7 @@ export default function FrenteDeCaixaPage() {
                   cartLines.length === 0 &&
                   payments.length === 0 &&
                   !pendingMethod &&
-                  !discountInput &&
+                  parsePriceInput(discountInput) <= 0 &&
                   !client
                 }
                 title="Limpar pedido"
@@ -1122,7 +1124,7 @@ export default function FrenteDeCaixaPage() {
                       inputMode="decimal"
                       value={discountInput}
                       onChange={(e) => handleDiscountInput(e.target.value)}
-                      placeholder={discountMode === "percent" ? "p. ex. 10" : "p. ex. 25,00"}
+                      placeholder={discountMode === "percent" ? "p. ex. 10,00" : "p. ex. 25,00"}
                       className="h-9 flex-1"
                     />
                   </div>
@@ -1193,9 +1195,7 @@ export default function FrenteDeCaixaPage() {
                           ref={paymentAmountInputRef}
                           inputMode="decimal"
                           value={pendingAmount}
-                          onChange={(e) =>
-                            setPendingAmount(e.target.value.replace(/[^\d.,]/g, ""))
-                          }
+                          onChange={(e) => setPendingAmount(formatMoneyInput(e.target.value))}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault()

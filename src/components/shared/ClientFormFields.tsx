@@ -9,6 +9,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
+import { formatPhoneInput } from "@/lib/formatters"
 
 export interface ClientFormValues {
   name: string
@@ -59,7 +60,7 @@ export function ClientFormFields({
           required
           placeholder="(00) 00000-0000"
           value={form.phone}
-          onChange={(e) => onChange({ ...form, phone: e.target.value })}
+          onChange={(e) => onChange({ ...form, phone: formatPhoneInput(e.target.value) })}
         />
       </div>
       <div className="flex flex-col gap-1.5">

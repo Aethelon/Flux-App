@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { formatCurrency, parsePriceInput } from "@/lib/formatters"
+import { formatCurrency, formatMoneyInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { DataTable, type Column } from "@/components/shared/DataTable"
 import {
@@ -109,7 +109,7 @@ export function AbrirCaixaDialog({
 }) {
   const operador = useOperadorLogado()
   const abrirCaixa = useCaixaStore((s) => s.abrirCaixa)
-  const [valor, setValor] = useState("")
+  const [valor, setValor] = useState("0,00")
   const [submitting, setSubmitting] = useState(false)
 
   async function handleConfirm() {
@@ -123,7 +123,7 @@ export function AbrirCaixaDialog({
     try {
       await abrirCaixa(operador, parsed)
       toast.success(`Caixa aberto com ${formatCurrency(parsed)} de fundo de troco.`)
-      setValor("")
+      setValor("0,00")
       onOpenChange(false)
     } catch {
       toast.error("Não foi possível abrir o caixa.")
@@ -140,14 +140,20 @@ export function AbrirCaixaDialog({
         </DialogHeader>
         <div className="flex flex-col gap-2 py-2">
           <Label htmlFor="valor-abertura">Valor de abertura (fundo de troco)</Label>
-          <Input
-            id="valor-abertura"
-            inputMode="decimal"
-            autoFocus
-            value={valor}
-            onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ""))}
-            placeholder="0,00"
-          />
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-(--color-text-secondary)">
+              R$
+            </span>
+            <Input
+              id="valor-abertura"
+              inputMode="decimal"
+              autoFocus
+              value={valor}
+              onChange={(e) => setValor(formatMoneyInput(e.target.value))}
+              placeholder="0,00"
+              className="pl-8"
+            />
+          </div>
           <span className="text-[12px] text-(--color-text-secondary)">
             Operador: {operador}
           </span>
@@ -242,7 +248,7 @@ function MovimentacaoDialog({
   const operador = useOperadorLogado()
   const registrarMovimentacao = useCaixaStore((s) => s.registrarMovimentacao)
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
-  const [valor, setValor] = useState("")
+  const [valor, setValor] = useState("0,00")
   const [motivo, setMotivo] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const label = tipo === "sangria" ? "Sangria" : "Suprimento"
@@ -269,7 +275,7 @@ function MovimentacaoDialog({
     try {
       await registrarMovimentacao(tipo, parsed, motivo.trim(), operador)
       toast.success(`${label} de ${formatCurrency(parsed)} registrada.`)
-      setValor("")
+      setValor("0,00")
       setMotivo("")
       onOpenChange(false)
     } catch {
@@ -293,7 +299,7 @@ function MovimentacaoDialog({
               inputMode="decimal"
               autoFocus
               value={valor}
-              onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ""))}
+              onChange={(e) => setValor(formatMoneyInput(e.target.value))}
               placeholder="0,00"
             />
           </div>
@@ -432,10 +438,10 @@ export function FecharCaixaDialog({
   const sessao = useCaixaStore((s) => s.sessaoAtual)
   const fecharCaixa = useCaixaStore((s) => s.fecharCaixa)
   const [valores, setValores] = useState<ValoresFechamento>({
-    dinheiro: "",
-    cartao_credito: "",
-    cartao_debito: "",
-    pix: "",
+    dinheiro: "0,00",
+    cartao_credito: "0,00",
+    cartao_debito: "0,00",
+    pix: "0,00",
   })
   const [submitting, setSubmitting] = useState(false)
 
@@ -444,13 +450,13 @@ export function FecharCaixaDialog({
   const sessaoAtual = sessao
 
   function handleChange(chave: keyof ValoresFechamento, valor: string) {
-    setValores((prev) => ({ ...prev, [chave]: valor.replace(/[^\d.,]/g, "") }))
+    setValores((prev) => ({ ...prev, [chave]: formatMoneyInput(valor) }))
   }
 
   async function handleConfirm() {
     if (submitting) return
     const valoresInformados = Object.values(valores)
-    if (!valoresInformados.some((valor) => /\d/.test(valor))) {
+    if (!valoresInformados.some((valor) => parsePriceInput(valor) > 0)) {
       toast.error("Informe ao menos um valor para fechar o caixa.")
       return
     }
@@ -483,7 +489,7 @@ export function FecharCaixaDialog({
         porMetodo,
       })
       toast.success("Caixa fechado com sucesso.")
-      setValores({ dinheiro: "", cartao_credito: "", cartao_debito: "", pix: "" })
+      setValores({ dinheiro: "0,00", cartao_credito: "0,00", cartao_debito: "0,00", pix: "0,00" })
       onOpenChange(false)
     } catch {
       toast.error("Não foi possível fechar o caixa.")
@@ -512,15 +518,20 @@ export function FecharCaixaDialog({
                 <span className="text-[14px] font-medium text-(--color-text-primary)">
                   {METODO_LABEL[metodo]}
                 </span>
-                <Input
-                  id={`valor-${metodo}`}
-                  inputMode="decimal"
-                  autoFocus={metodo === "dinheiro"}
-                  value={valores[metodo]}
-                  onChange={(e) => handleChange(metodo, e.target.value)}
-                  placeholder="0,00"
-                  className="w-36"
-                />
+                <div className="relative w-36">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-(--color-text-secondary)">
+                    R$
+                  </span>
+                  <Input
+                    id={`valor-${metodo}`}
+                    inputMode="decimal"
+                    autoFocus={metodo === "dinheiro"}
+                    value={valores[metodo]}
+                    onChange={(e) => handleChange(metodo, e.target.value)}
+                    placeholder="0,00"
+                    className="pl-8"
+                  />
+                </div>
               </div>
             ))}
           </div>

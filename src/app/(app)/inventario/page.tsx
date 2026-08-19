@@ -40,7 +40,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
-import { formatCurrency, formatPriceInput, parsePriceInput } from "@/lib/formatters"
+import { formatCurrency, formatMoneyInput, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { api, idempotencyHeaders } from "@/lib/api"
 import { useCategoriesStore } from "@/store/categoriesStore"
@@ -842,7 +842,7 @@ function ProductFormFields({
             inputMode="decimal"
             placeholder="Ex: 1.250,00"
             value={form.price}
-            onChange={(e) => onChange({ ...form, price: e.target.value })}
+            onChange={(e) => onChange({ ...form, price: formatMoneyInput(e.target.value) })}
           />
         </div>
       </div>
@@ -853,7 +853,7 @@ function ProductFormFields({
           inputMode="decimal"
           placeholder="Ex: 750,00"
           value={form.cost}
-          onChange={(e) => onChange({ ...form, cost: e.target.value })}
+          onChange={(e) => onChange({ ...form, cost: formatMoneyInput(e.target.value) })}
         />
       </div>
       <div className="grid grid-cols-2 gap-4 items-end">

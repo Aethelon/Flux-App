@@ -22,13 +22,44 @@ export function formatPriceInput(value: number): string {
   return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export function formatPhone(phone: string): string {
+function formatCentsInput(value: string, maximum?: number): string {
+  const digits = value.replace(/\D/g, "")
+  if (!digits) return formatPriceInput(0)
+
+  const amount = Number(digits) / 100
+  const normalized = maximum === undefined ? amount : Math.min(maximum, amount)
+  return formatPriceInput(normalized)
+}
+
+export function formatMoneyInput(value: string): string {
+  return formatCentsInput(value)
+}
+
+export function formatPercentInput(value: string): string {
+  return formatCentsInput(value, 100)
+}
+
+export function phoneDigits(phone: string): string {
   const digits = phone.replace(/\D/g, "")
-  if (digits.length === 11) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
-  }
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
-  }
-  return phone
+  const localDigits = (digits.length === 12 || digits.length === 13) && digits.startsWith("55")
+    ? digits.slice(2)
+    : digits
+  return localDigits.slice(0, 11)
+}
+
+export function formatPhoneInput(phone: string): string {
+  const digits = phoneDigits(phone)
+  if (!digits) return ""
+  if (digits.length <= 2) return `(${digits}`
+
+  const areaCode = `(${digits.slice(0, 2)}) `
+  const number = digits.slice(2)
+  const firstPartLength = digits.length <= 10 ? 4 : 5
+  const firstPart = number.slice(0, firstPartLength)
+  const secondPart = number.slice(firstPartLength)
+  return `${areaCode}${firstPart}${secondPart ? `-${secondPart}` : ""}`
+}
+
+export function formatPhone(phone: string): string {
+  return formatPhoneInput(phone)
 }
