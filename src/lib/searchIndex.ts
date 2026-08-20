@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import type { HistorySearchRecord } from "@/store/historyStore"
-import { formatCurrency } from "@/lib/formatters"
+import { formatCurrency, phoneDigits } from "@/lib/formatters"
 import type { Client } from "@/types/client"
 import type { Product } from "@/types/product"
 import type { KanbanColumn, Order } from "@/types/order"
@@ -161,7 +161,7 @@ function clientItems(clients: Client[]): SearchItem[] {
     description: `${c.status} · ${c.phone}`,
     href: `/clientes?q=${encodeURIComponent(c.name)}`,
     icon: Users,
-    keywords: [c.email, c.phone],
+    keywords: [c.email, c.phone, phoneDigits(c.phone)],
     group: "Clientes",
   }))
 }

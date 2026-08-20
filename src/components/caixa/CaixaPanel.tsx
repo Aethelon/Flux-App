@@ -456,10 +456,6 @@ export function FecharCaixaDialog({
   async function handleConfirm() {
     if (submitting) return
     const valoresInformados = Object.values(valores)
-    if (!valoresInformados.some((valor) => parsePriceInput(valor) > 0)) {
-      toast.error("Informe ao menos um valor para fechar o caixa.")
-      return
-    }
 
     const totalContado = valoresInformados.reduce(
       (soma, valor) => soma + parsePriceInput(valor),

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { formatMoneyInput, formatPercentInput, formatPhoneInput } from "../src/lib/formatters"
+import { formatMoneyInput, formatPercentInput, formatPhoneInput, phoneDigits } from "../src/lib/formatters.ts"
 
 test("formats typed money digits as Brazilian reais", () => {
   let amount = formatMoneyInput("")
@@ -30,4 +30,8 @@ test("formats a phone number while it is typed", () => {
   assert.equal(formatPhoneInput("3443434343"), "(34) 4343-4343")
   assert.equal(formatPhoneInput("344343434344"), "(34) 43434-3434")
   assert.equal(formatPhoneInput("+55 (34) 43434-3434"), "(34) 43434-3434")
+})
+
+test("normalizes masked and unmasked Brazilian phones equally", () => {
+  assert.equal(phoneDigits("(34) 43434-3434"), phoneDigits("34434343434"))
 })
