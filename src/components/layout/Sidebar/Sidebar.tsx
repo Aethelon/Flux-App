@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils"
 import { useSidebarStore } from "@/store/sidebarStore"
+import { FluxMark } from "@/components/brand/FluxMark"
 import { SidebarNav } from "./SidebarNav"
 import { SidebarFooter } from "./SidebarFooter"
 
@@ -23,7 +24,7 @@ export function Sidebar() {
         )}
       >
         <div className="size-10 rounded-[12px] bg-(--color-accent) flex items-center justify-center shrink-0 shadow-[0px_4px_4px_0px_rgba(0,0,0,0.25)]">
-          <span className="text-[18px] font-black text-white font-(family-name:--font-ui)">F</span>
+          <FluxMark className="size-6 text-white" />
         </div>
         <div
           className={cn(

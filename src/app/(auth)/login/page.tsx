@@ -12,6 +12,7 @@ import type { AuthUser } from "@/types/auth"
 import { cn } from "@/lib/utils"
 import { canAccessRoute, getDefaultRoute } from "@/lib/accessControl"
 import { DarkModeToggle } from "@/components/layout/Header/DarkModeToggle"
+import { FluxMark } from "@/components/brand/FluxMark"
 
 const schema = z.object({
   email: z.string().email("E-mail inválido"),
@@ -84,9 +85,14 @@ function LoginForm() {
         }}
       >
         {/* Logo */}
-        <span className="text-[32px] font-bold text-(--color-text-primary) font-(family-name:--font-ui) tracking-[-0.5px] leading-7">
-          Flux
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 items-center justify-center rounded-xl bg-(--color-accent) text-white shadow-(--shadow-logo)">
+            <FluxMark className="size-6" />
+          </span>
+          <span className="text-[32px] font-bold text-(--color-text-primary) font-(family-name:--font-ui) tracking-[-0.5px] leading-7">
+            Flux
+          </span>
+        </div>
 
         {/* Branding copy */}
         <div className="flex flex-col gap-6 max-w-lg pb-24">
