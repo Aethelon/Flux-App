@@ -361,7 +361,7 @@ export default function OrdensPage() {
   }
 
   async function handleDeleteColumn() {
-    if (!deletingColumn || deletingColumn.protected) return
+    if (!deletingColumn || deletingColumn.protected || deletingColumn.semanticType !== "open") return
     await api.post(`service-order-columns/${deletingColumn.id}/archive`, {
       headers: idempotencyHeaders(),
       json: {
@@ -754,7 +754,9 @@ export default function OrdensPage() {
           </div>
           <DialogFooter showCloseButton={false} className="sm:justify-between">
             {/* As colunas protegidas representam os estados finais do fluxo. */}
-            {columnModalMode === "edit" && !editingColumn?.protected ? (
+            {columnModalMode === "edit"
+              && editingColumn?.semanticType === "open"
+              && !editingColumn.protected ? (
               <Button
                 type="button"
                 variant="outline"

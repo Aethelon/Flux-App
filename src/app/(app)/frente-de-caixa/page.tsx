@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select"
 import { ClientCombobox } from "@/components/shared/ClientCombobox"
 import { formatCurrency, formatMoneyInput, formatPercentInput, formatPriceInput, parsePriceInput } from "@/lib/formatters"
+import { isSellableOrder } from "@/lib/service-order"
 import { cn } from "@/lib/utils"
 import { describePayment, type Payment } from "@/types/payment"
 import type { Product } from "@/types/product"
@@ -42,7 +43,7 @@ import { api, idempotencyHeaders } from "@/lib/api"
 import { AbrirCaixaDialog } from "@/components/caixa/CaixaPanel"
 
 // "Ordens" entra como uma categoria à parte no fim da lista: são ordens de
-// serviço ainda em aberto (não encerradas) que podem ser cobradas no balcão.
+// serviço concluídas e ainda não vendidas, disponíveis para cobrança no balcão.
 const ORDERS_CATEGORY = "Ordens"
 
 // Formas de pagamento distintas — crédito e débito são chaves separadas para
@@ -351,7 +352,7 @@ export default function FrenteDeCaixaPage() {
   const loadOrders = useOrdersStore((state) => state.loadOrders)
   const clients = useClientsStore((state) => state.clients)
   const loadClients = useClientsStore((state) => state.loadClients)
-  const SELLABLE_ORDERS = orders.filter((order) => order.status === "open")
+  const SELLABLE_ORDERS = orders.filter(isSellableOrder)
   const CATALOG = products.filter((product) =>
     product.active && product.type !== "raw_material"
   )
@@ -932,7 +933,7 @@ export default function FrenteDeCaixaPage() {
                 <div className="flex flex-col items-center justify-center gap-2 py-20 text-center">
                   <ClipboardList size={28} className="text-(--color-text-secondary)/50" />
                   <p className="text-[14px] text-(--color-text-secondary)">
-                    Nenhuma ordem em aberto encontrada.
+                    Nenhuma ordem concluída disponível para venda.
                   </p>
                 </div>
               )
