@@ -206,7 +206,7 @@ export function ResumoFechamentoDialog({
             </div>
             <div className="rounded-xl border border-(--color-border) bg-(--color-surface) p-4">
               <div className="flex items-center justify-between text-[13px]">
-                <span className="text-(--color-text-secondary)">O que o funcionário informou</span>
+                <span className="text-(--color-text-secondary)">O que o operador informou</span>
                 <span className="font-semibold text-(--color-text-primary)">
                   {formatCurrency(resumo.informado)}
                 </span>
@@ -675,7 +675,8 @@ function criarColunasHistorico(
 // e histórico de turnos fechados). É o conteúdo principal da
 // tela /caixa; o Dashboard mostra só um resumo (CaixaResumoCard) com link pra cá.
 export function CaixaPanel() {
-  const isAdmin = useUserStore((s) => s.user?.role === "admin")
+  const currentUser = useUserStore((s) => s.user)
+  const isAdmin = currentUser?.role === "admin"
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
   const historico = useCaixaStore((s) => s.historico)
   const loadCash = useCaixaStore((s) => s.loadCash)
@@ -891,7 +892,7 @@ export function CaixaPanel() {
               </div>
               <div className="rounded-xl border border-(--color-border) bg-(--color-surface) p-4">
                 <div className="flex items-center justify-between text-[13px]">
-                  <span className="text-(--color-text-secondary)">O que o funcionário informou</span>
+                  <span className="text-(--color-text-secondary)">O que o operador informou</span>
                   <span className="font-semibold text-(--color-text-primary)">
                     {formatCurrency(sessaoConferencia.valorContado ?? 0)}
                   </span>

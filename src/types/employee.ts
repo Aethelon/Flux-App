@@ -4,6 +4,7 @@ export interface Employee {
   email: string
   phone: string
   role: string
+  jobRoleId: string
   status: "Ativo" | "Inativo"
   version: number
   createdAt: string

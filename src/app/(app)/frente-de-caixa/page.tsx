@@ -39,12 +39,7 @@ import { useProductsStore } from "@/store/productsStore"
 import { useOrdersStore } from "@/store/ordersStore"
 import { useClientsStore } from "@/store/clientsStore"
 import { api, idempotencyHeaders } from "@/lib/api"
-import {
-  AbrirCaixaDialog,
-  FecharCaixaDialog,
-  ResumoFechamentoDialog,
-  type ResumoFechamento,
-} from "@/components/caixa/CaixaPanel"
+import { AbrirCaixaDialog } from "@/components/caixa/CaixaPanel"
 
 // "Ordens" entra como uma categoria à parte no fim da lista: são ordens de
 // serviço ainda em aberto (não encerradas) que podem ser cobradas no balcão.
@@ -345,10 +340,8 @@ export default function FrenteDeCaixaPage() {
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const paymentAmountInputRef = useRef<HTMLInputElement>(null)
-  // Controle dos modais de abrir/fechar caixa, acessíveis direto da Frente de Caixa.
+  // A abertura também fica acessível na Frente de Caixa; o fechamento usa o header global.
   const [abrirCaixaOpen, setAbrirCaixaOpen] = useState(false)
-  const [fecharCaixaOpen, setFecharCaixaOpen] = useState(false)
-  const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
   const [checkoutPending, setCheckoutPending] = useState(false)
   const caixaAberto = useCaixaStore((s) => s.sessaoAtual !== null)
   const loadCash = useCaixaStore((s) => s.loadCash)
@@ -917,7 +910,7 @@ export default function FrenteDeCaixaPage() {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <div className="min-h-0 flex-1 overflow-y-auto p-1">
             {showingOrders ? (
               filteredOrders.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
@@ -977,16 +970,6 @@ export default function FrenteDeCaixaPage() {
               Novo pedido
             </h2>
             <div className="flex items-center gap-1">
-              {caixaAberto && (
-                <button
-                  type="button"
-                  onClick={() => setFecharCaixaOpen(true)}
-                  title="Fechar caixa"
-                  className="rounded-md p-1.5 text-(--color-text-secondary) transition-colors hover:bg-(--color-surface-raised) hover:text-(--color-text-primary)"
-                >
-                  <Lock size={16} />
-                </button>
-              )}
               <button
                 type="button"
                 onClick={clearOrder}
@@ -1380,15 +1363,6 @@ export default function FrenteDeCaixaPage() {
       </div>
 
       <AbrirCaixaDialog open={abrirCaixaOpen} onOpenChange={setAbrirCaixaOpen} />
-      <FecharCaixaDialog
-        open={fecharCaixaOpen}
-        onOpenChange={setFecharCaixaOpen}
-        onFechamentoConfirmado={setResumoFechamento}
-      />
-      <ResumoFechamentoDialog
-        resumo={resumoFechamento}
-        onOpenChange={() => setResumoFechamento(null)}
-      />
     </div>
   )
 }

@@ -29,7 +29,9 @@ const PAYMENT_ICONS: Record<PaymentKind, typeof QrCode> = {
 const PER_PAGE = 10
 
 export default function HistoricoPage() {
-  const isAdmin = useUserStore((s) => s.user?.role === "admin")
+  const user = useUserStore((s) => s.user)
+  const canViewKpis = user?.role === "admin"
+  const canExport = user?.role === "admin"
   const history = useHistoryStore((state) => state.history)
   const loadHistory = useHistoryStore((state) => state.loadHistory)
   const kpis = useHistoryStore((state) => state.kpis)
@@ -42,9 +44,9 @@ export default function HistoricoPage() {
 
   useEffect(() => {
     void loadClients()
-      .then(() => loadHistory(isAdmin))
+      .then(() => loadHistory(canViewKpis))
       .catch(() => toast.error("Não foi possível carregar o histórico."))
-  }, [isAdmin, loadClients, loadHistory])
+  }, [canViewKpis, loadClients, loadHistory])
 
   // Filtro por item: uma venda mista (produto + serviço) aparece nas duas abas.
   const filtered = history.filter((h) => h.items.some((i) => i.type === tab))
@@ -151,7 +153,7 @@ export default function HistoricoPage() {
         subtitle="Gerencie sua base de histórico de compras e vendas de serviços"
       />
 
-      {isAdmin && (
+      {canViewKpis && (
         <div className="grid grid-cols-2 gap-4 mb-8">
           {[
             { label: "Faturamento Líquido", value: (kpis?.netRevenueCents ?? 0) / 100 },
@@ -186,7 +188,7 @@ export default function HistoricoPage() {
             tabs={TABS}
             activeTab={tab}
             onTabChange={(t) => { setTab(t); setPage(1) }}
-            actions={
+            actions={canExport ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -197,7 +199,7 @@ export default function HistoricoPage() {
                 <Download size={14} />
                 {exporting ? "Exportando..." : "Exportar"}
               </Button>
-            }
+            ) : undefined}
             pagination={{
               page,
               total: filtered.length,

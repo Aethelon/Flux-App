@@ -2,6 +2,7 @@ import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { AppLayout } from "@/components/layout/AppLayout"
 import { UserHydrator } from "@/components/layout/UserHydrator"
+import { SessionLockProvider } from "@/components/layout/SessionLockProvider"
 import { verifyToken, getTokenFromCookies } from "@/lib/auth.server"
 import type { AuthUser } from "@/types/auth"
 
@@ -24,15 +25,20 @@ export default async function AuthenticatedLayout({
       name: payload.name,
       email: payload.email,
       role: payload.role,
+      jobRole: payload.jobRole,
+      permissions: payload.permissions,
     }
   } catch {
     redirect("/login")
   }
+  const initiallyLocked = cookieStore.get("flux_session_lock")?.value === user.id
 
   return (
-    <AppLayout>
-      <UserHydrator user={user} />
-      {children}
-    </AppLayout>
+    <SessionLockProvider user={user} initiallyLocked={initiallyLocked}>
+      <AppLayout>
+        <UserHydrator user={user} />
+        {children}
+      </AppLayout>
+    </SessionLockProvider>
   )
 }

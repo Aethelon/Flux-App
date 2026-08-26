@@ -22,6 +22,7 @@ export interface Order {
   priority: OrderPriority
   dueAt: string
   status: "open" | "completed" | "cancelled"
+  finalSaleId: string | null
   version: number
   completedAt?: string // data em que entrou em "Concluído" (ISO)
 }

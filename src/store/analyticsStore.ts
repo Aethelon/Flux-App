@@ -140,7 +140,7 @@ interface AnalyticsStore {
   insights: AiInsight[]
   insightAvailability: "available" | "unavailable"
   insightRunStatus: AiRunStatus | null
-  loadDashboard: (query?: DashboardQuery) => Promise<void>
+  loadDashboard: (query?: DashboardQuery, includeInsights?: boolean) => Promise<void>
   loadIntelligence: () => Promise<void>
   runForecasts: () => Promise<void>
   runRecommendations: () => Promise<void>
@@ -157,7 +157,7 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
   insights: [],
   insightAvailability: "available",
   insightRunStatus: null,
-  loadDashboard: async (query) => {
+  loadDashboard: async (query, includeInsights = true) => {
     const trendTo = query?.to ? new Date(query.to) : new Date()
     const trendFrom = new Date(trendTo.getFullYear(), trendTo.getMonth() - 5, 1)
     const [dashboard, trendDashboard, insights] = await Promise.all([
@@ -179,13 +179,23 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
           to: trendTo.toISOString(),
         },
       }).json<DashboardData>(),
-      api.get("intelligence/insights", {
-        searchParams: { limit: 5, state: "accepted" },
-      }).json<{
-        data: AiInsight[]
-        availability: "available" | "unavailable"
-        latestRunStatus: AiRunStatus | null
-      }>(),
+      includeInsights
+        ? api.get("intelligence/insights", {
+            searchParams: { limit: 5, state: "accepted" },
+          }).json<{
+            data: AiInsight[]
+            availability: "available" | "unavailable"
+            latestRunStatus: AiRunStatus | null
+          }>().catch(() => ({
+            data: [] as AiInsight[],
+            availability: "unavailable" as const,
+            latestRunStatus: null,
+          }))
+        : Promise.resolve({
+            data: [] as AiInsight[],
+            availability: "unavailable" as const,
+            latestRunStatus: null,
+          }),
     ])
     set({
       dashboard,

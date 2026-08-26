@@ -14,11 +14,13 @@ export function ClientCombobox({
   // "up" abre o dropdown acima do campo — útil quando o combobox fica no rodapé
   // de um container com rolagem, para não empurrar o conteúdo nem gerar scroll.
   align = "down",
+  disabled = false,
 }: {
   id?: string
   value: string
   onChange: (name: string) => void
   align?: "down" | "up"
+  disabled?: boolean
 }) {
   const clients = useClientsStore((s) => s.clients)
   const [open, setOpen] = useState(false)
@@ -35,13 +37,14 @@ export function ClientCombobox({
         id={id}
         placeholder="Buscar ou digitar cliente"
         value={value}
+        disabled={disabled}
         autoComplete="off"
         onChange={(e) => { onChange(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
       />
 
-      {open && (
+      {open && !disabled && (
         <div
           className={cn(
             "absolute z-50 max-h-56 w-full overflow-y-auto rounded-lg border border-(--color-border) bg-popover p-1 shadow-md ring-1 ring-foreground/10",

@@ -16,6 +16,16 @@ interface AuthTokens {
   accessTokenExpiresIn: number
 }
 
+interface CurrentAccess {
+  role: "admin" | "funcionario"
+  permissions?: string[]
+}
+
+type CurrentAccessResult =
+  | { status: "available"; access: CurrentAccess }
+  | { status: "unauthorized" }
+  | { status: "unavailable" }
+
 const refreshRequests = new Map<string, Promise<AuthTokens | null>>()
 
 function getSecret() {
@@ -54,6 +64,30 @@ function refresh(refreshToken: string): Promise<AuthTokens | null> {
   refreshRequests.set(refreshToken, request)
   setTimeout(() => refreshRequests.delete(refreshToken), 5_000)
   return request
+}
+
+async function currentAccess(accessToken: string): Promise<CurrentAccessResult> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/auth/me`, {
+      headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
+      cache: "no-store",
+    })
+    if (response.status === 401) return { status: "unauthorized" }
+    if (!response.ok) return { status: "unavailable" }
+    const value = await response.json() as Partial<CurrentAccess>
+    if (!isUserRole(value.role)) return { status: "unavailable" }
+    return {
+      status: "available",
+      access: {
+        role: value.role,
+        ...(Array.isArray(value.permissions)
+          ? { permissions: value.permissions.filter((permission): permission is string => typeof permission === "string") }
+          : {}),
+      },
+    }
+  } catch {
+    return { status: "unavailable" }
+  }
 }
 
 function setAuthCookies(response: NextResponse, tokens: AuthTokens) {
@@ -135,8 +169,23 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
-  if (isPublic || !canAccessRoute(payload.role, pathname)) {
-    const response = NextResponse.redirect(new URL(getDefaultRoute(payload.role), request.url))
+  const liveAccess = await currentAccess(tokens?.accessToken ?? token ?? "")
+  if (liveAccess.status === "unauthorized") {
+    const response = isPublic
+      ? NextResponse.next()
+      : NextResponse.redirect(new URL("/login", request.url))
+    clearAuthCookies(response)
+    return response
+  }
+  const effectiveRole = liveAccess.status === "available" ? liveAccess.access.role : payload.role
+  const permissions = liveAccess.status === "available"
+    ? liveAccess.access.permissions
+    : Array.isArray(payload.permissions)
+      ? payload.permissions.filter((permission): permission is string => typeof permission === "string")
+      : undefined
+
+  if (isPublic || !canAccessRoute(effectiveRole, pathname, permissions)) {
+    const response = NextResponse.redirect(new URL(getDefaultRoute(effectiveRole, permissions), request.url))
     if (tokens) setAuthCookies(response, tokens)
     return response
   }
@@ -145,5 +194,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/auth).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/auth|api/backend).*)"],
 }

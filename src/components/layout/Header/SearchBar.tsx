@@ -29,7 +29,7 @@ export function SearchBar() {
   const loadOrders = useOrdersStore((s) => s.loadOrders)
   const history = useHistoryStore((s) => s.searchRecords)
   const loadHistorySearch = useHistoryStore((s) => s.loadHistorySearch)
-  const role = useUserStore((s) => s.user?.role ?? "funcionario")
+  const user = useUserStore((s) => s.user)
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -38,23 +38,30 @@ export function SearchBar() {
   const groups = useMemo(
     () =>
       searchItems(
-        buildSearchIndex(clients, products, orders, columns, history).filter((item) => canAccessRoute(role, item.href)),
+        buildSearchIndex(clients, products, orders, columns, history).filter((item) => canAccessRoute(user?.role ?? "funcionario", item.href, user?.permissions)),
         query
       ),
-    [clients, columns, history, orders, products, query, role]
+    [clients, columns, history, orders, products, query, user]
   )
   const showResults = open && query.trim().length > 0
 
   // ⌘K foca a barra (antes abria um modal separado).
   useEffect(() => {
+    if (!user) return
+    const canLoadClients = ["/clientes", "/ordens", "/frente-de-caixa", "/historico"]
+      .some((route) => canAccessRoute(user.role, route, user.permissions))
+    const canLoadProducts = ["/inventario", "/frente-de-caixa", "/dashboard"]
+      .some((route) => canAccessRoute(user.role, route, user.permissions))
+    const canLoadOrders = ["/ordens", "/frente-de-caixa", "/dashboard", "/inteligencia"]
+      .some((route) => canAccessRoute(user.role, route, user.permissions))
     void Promise.all([
-      loadClients(),
-      loadProducts(),
-      loadOrders(),
-      ...(role === "admin" ? [loadHistorySearch()] : []),
+      ...(canLoadClients ? [loadClients()] : []),
+      ...(canLoadProducts ? [loadProducts()] : []),
+      ...(canLoadOrders ? [loadOrders()] : []),
+      ...(canAccessRoute(user.role, "/historico", user.permissions) ? [loadHistorySearch()] : []),
     ])
       .catch(() => undefined)
-  }, [loadClients, loadHistorySearch, loadOrders, loadProducts, role])
+  }, [loadClients, loadHistorySearch, loadOrders, loadProducts, user])
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {

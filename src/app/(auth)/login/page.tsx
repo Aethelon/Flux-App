@@ -55,7 +55,7 @@ function LoginForm() {
       const user = body.user as AuthUser
       const next = params.get("next")
       setUser(user)
-      router.push(next && canAccessRoute(user.role, next) ? next : getDefaultRoute(user.role))
+      router.push(next && canAccessRoute(user.role, next, user.permissions) ? next : getDefaultRoute(user.role, user.permissions))
     } catch {
       toast.error("Algo deu errado. Tente novamente.")
     }

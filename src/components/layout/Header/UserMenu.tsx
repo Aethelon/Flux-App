@@ -48,7 +48,7 @@ export function UserMenu() {
             {user.name}
           </span>
           <span className="text-[12px] font-medium text-(--color-text-secondary) font-(family-name:--font-ui) tracking-[-0.132px] whitespace-nowrap leading-4.5">
-            {user.role === "admin" ? "Admin" : "Funcionário"}
+            {user.jobRole?.name ?? (user.role === "admin" ? "Administrador" : "Operador")}
           </span>
         </div>
         <Avatar className="w-9 h-9 rounded-md shrink-0">

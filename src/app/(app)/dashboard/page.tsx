@@ -8,10 +8,12 @@ import { PageHeader } from "@/components/shared/PageHeader"
 import { MiniLine } from "@/components/shared/MiniLine"
 import { CaixaResumoCard } from "@/components/caixa/CaixaResumoCard"
 import { formatCurrency } from "@/lib/formatters"
+import { hasPermission } from "@/lib/accessControl"
 import { cn } from "@/lib/utils"
 import { useAnalyticsStore } from "@/store/analyticsStore"
 import { useOrdersStore } from "@/store/ordersStore"
 import { useProductsStore } from "@/store/productsStore"
+import { useUserStore } from "@/store/userStore"
 
 const CARD = "rounded-xl border border-(--color-border) bg-(--color-surface) p-6"
 const CARD_LABEL =
@@ -64,6 +66,11 @@ function monthLabel(bucketStart: string): string {
 }
 
 export default function DashboardPage() {
+  const user = useUserStore((state) => state.user)
+  const canViewIntelligence = hasPermission(user?.role, user?.permissions, "intelligence.view")
+  const canViewCash = hasPermission(user?.role, user?.permissions, "cash.view")
+  const canViewInventory = hasPermission(user?.role, user?.permissions, "inventory.view")
+  const canViewOrders = hasPermission(user?.role, user?.permissions, "orders.view")
   const dashboard = useAnalyticsStore((state) => state.dashboard)
   const trendDashboard = useAnalyticsStore((state) => state.trendDashboard)
   const insights = useAnalyticsStore((state) => state.insights)
@@ -75,9 +82,10 @@ export default function DashboardPage() {
   const loadProducts = useProductsStore((state) => state.loadProducts)
 
   useEffect(() => {
-    void Promise.all([loadDashboard(), loadOrders(), loadProducts()])
+    if (!user) return
+    void Promise.all([loadDashboard(undefined, canViewIntelligence), loadOrders(), loadProducts()])
       .catch(() => toast.error("Não foi possível carregar o dashboard."))
-  }, [loadDashboard, loadOrders, loadProducts])
+  }, [canViewIntelligence, loadDashboard, loadOrders, loadProducts, user])
 
   const stockAlerts = products.filter(
     (product) => product.status === "Baixo estoque" || product.status === "Esgotado"
@@ -180,7 +188,7 @@ export default function DashboardPage() {
                 </span>
               </div>
             ))}
-            {stockAlerts.length > 3 && (
+            {stockAlerts.length > 3 && canViewInventory && (
               <Link
                 href="/inventario"
                 className="mt-1 text-[13px] font-medium text-(--color-accent) hover:underline"
@@ -192,17 +200,21 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="mt-6">
-        <CaixaResumoCard />
-      </div>
+      {canViewCash && (
+        <div className="mt-6">
+          <CaixaResumoCard />
+        </div>
+      )}
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className={cn(CARD, "flex flex-col lg:col-span-2")}>
+        <div className={cn(CARD, "flex flex-col", canViewIntelligence ? "lg:col-span-2" : "lg:col-span-3")}>
           <div className="mb-6 flex items-center justify-between">
             <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Fluxo de Produção</h2>
-            <Link href="/ordens" className="text-[14px] font-semibold text-(--color-accent) hover:underline">
-              Ver Quadro
-            </Link>
+            {canViewOrders && (
+              <Link href="/ordens" className="text-[14px] font-semibold text-(--color-accent) hover:underline">
+                Ver Quadro
+              </Link>
+            )}
           </div>
           <div className="flex flex-1 gap-3 overflow-x-auto pb-2">
             {columns.map((column) => {
@@ -235,34 +247,36 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className={cn(CARD, "flex flex-col")}>
-          <div className="mb-1 flex items-center gap-2">
-            <Sparkles size={18} className="text-(--color-accent)" />
-            <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Insights de IA</h2>
+        {canViewIntelligence && (
+          <div className={cn(CARD, "flex flex-col")}>
+            <div className="mb-1 flex items-center gap-2">
+              <Sparkles size={18} className="text-(--color-accent)" />
+              <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Insights de IA</h2>
+            </div>
+            <p className="mb-4 text-[12px] text-(--color-text-secondary)">
+              Explicações aprovadas com base nas métricas persistidas
+            </p>
+            <div className="flex flex-1 flex-col gap-2.5">
+              {insights.length === 0 ? (
+                <p className="text-[12px] text-(--color-text-secondary)">Nenhum insight aprovado.</p>
+              ) : insights.map((insight) => (
+                <div key={insight.id} className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3">
+                  <p className="text-[13px] text-(--color-text-primary)">{insight.text}</p>
+                  <span className="mt-2 block text-[10px] uppercase text-(--color-text-secondary)">
+                    {insight.provider} · {insight.modelId}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <Link
+              href="/inteligencia"
+              className="mt-6 flex items-center justify-center gap-2 rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-4 py-2.5 text-[14px] font-semibold text-(--color-text-primary)"
+            >
+              Ver na Inteligência
+              <ArrowRight size={14} />
+            </Link>
           </div>
-          <p className="mb-4 text-[12px] text-(--color-text-secondary)">
-            Explicações aprovadas com base nas métricas persistidas
-          </p>
-          <div className="flex flex-1 flex-col gap-2.5">
-            {insights.length === 0 ? (
-              <p className="text-[12px] text-(--color-text-secondary)">Nenhum insight aprovado.</p>
-            ) : insights.map((insight) => (
-              <div key={insight.id} className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3">
-                <p className="text-[13px] text-(--color-text-primary)">{insight.text}</p>
-                <span className="mt-2 block text-[10px] uppercase text-(--color-text-secondary)">
-                  {insight.provider} · {insight.modelId}
-                </span>
-              </div>
-            ))}
-          </div>
-          <Link
-            href="/inteligencia"
-            className="mt-6 flex items-center justify-center gap-2 rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-4 py-2.5 text-[14px] font-semibold text-(--color-text-primary)"
-          >
-            Ver na Inteligência
-            <ArrowRight size={14} />
-          </Link>
-        </div>
+        )}
       </div>
     </div>
   )

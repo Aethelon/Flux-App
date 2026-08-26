@@ -41,17 +41,21 @@ import { useUserStore } from "@/store/userStore"
 import { useFontSizeStore, FONT_SIZE_SCALE, type FontSize } from "@/store/fontSizeStore"
 import { useCategoriesStore } from "@/store/categoriesStore"
 import { useUnitsStore } from "@/store/unitsStore"
+import { useJobRolesStore } from "@/store/jobRolesStore"
 import type { Unit, Category } from "@/types/settings"
+import type { JobRole } from "@/types/job-role"
 
 export default function ConfiguracoesPage() {
   const [tab, setTab] = useState("unidades")
   const loadCategories = useCategoriesStore((state) => state.loadCategories)
   const loadUnits = useUnitsStore((state) => state.loadUnits)
+  const isAdmin = useUserStore((state) => state.user?.role === "admin")
+  const loadJobRoles = useJobRolesStore((state) => state.load)
 
   useEffect(() => {
-    void Promise.all([loadCategories(), loadUnits()])
+    void Promise.all([loadCategories(), loadUnits(), ...(isAdmin ? [loadJobRoles()] : [])])
       .catch(() => toast.error("Não foi possível carregar as configurações."))
-  }, [loadCategories, loadUnits])
+  }, [isAdmin, loadCategories, loadJobRoles, loadUnits])
 
   return (
     <div>
@@ -64,6 +68,7 @@ export default function ConfiguracoesPage() {
         <TabsList className="bg-(--color-surface) mb-6">
           <TabsTrigger value="unidades">Unidades de Medida</TabsTrigger>
           <TabsTrigger value="categorias">Categorias</TabsTrigger>
+          {isAdmin && <TabsTrigger value="cargos">Cargos</TabsTrigger>}
           <TabsTrigger value="preferencias">Preferências</TabsTrigger>
         </TabsList>
 
@@ -73,6 +78,7 @@ export default function ConfiguracoesPage() {
         <TabsContent value="categorias">
           <CategoriesPanel />
         </TabsContent>
+        {isAdmin && <TabsContent value="cargos"><JobRolesPanel /></TabsContent>}
         <TabsContent value="preferencias">
           <PreferencesPanel />
         </TabsContent>
@@ -572,6 +578,69 @@ function CategoriesPanel() {
   )
 }
 
+function JobRolesPanel() {
+  const roles = useJobRolesStore((state) => state.roles)
+  const permissions = useJobRolesStore((state) => state.permissions)
+  const createRole = useJobRolesStore((state) => state.createRole)
+  const updateRole = useJobRolesStore((state) => state.updateRole)
+  const removeRole = useJobRolesStore((state) => state.removeRole)
+  const [selected, setSelected] = useState<JobRole | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [form, setForm] = useState({ name: "", description: "", status: "active" as "active" | "inactive", permissions: [] as string[] })
+
+  function openAdd() {
+    setSelected(null)
+    setForm({ name: "", description: "", status: "active", permissions: [] })
+    setDialogOpen(true)
+  }
+  function openEdit(role: JobRole) {
+    setSelected(role)
+    setForm({ name: role.name, description: role.description, status: role.status, permissions: role.permissions })
+    setDialogOpen(true)
+  }
+  async function save() {
+    if (submitting || !form.name.trim()) return
+    setSubmitting(true)
+    try {
+      if (selected) await updateRole(selected, form)
+      else await createRole({ name: form.name, description: form.description, permissions: form.permissions })
+      setDialogOpen(false)
+      toast.success(selected ? "Cargo atualizado." : "Cargo criado.")
+    } catch { toast.error("Não foi possível salvar o cargo.") } finally { setSubmitting(false) }
+  }
+  async function remove() {
+    if (!selected || submitting) return
+    setSubmitting(true)
+    try { await removeRole(selected); setDeleteOpen(false); toast.success("Cargo removido.") }
+    catch { toast.error("Não foi possível remover o cargo. Verifique se ele está em uso.") }
+    finally { setSubmitting(false) }
+  }
+  const groups = [...new Set(permissions.map((permission) => permission.group))]
+  const protectedAdministrator = selected?.systemKey === "administrator"
+
+  return <>
+    <div className="rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 bg-(--color-surface-raised) border-b border-(--color-border)">
+        <div><h2 className="text-[18px] font-medium text-(--color-text-primary)">Cargos e telas disponíveis</h2><p className="text-[12px] text-(--color-text-secondary)">Escolha quais telas os funcionários deste cargo podem acessar.</p></div>
+        <Button size="sm" className="gap-2 bg-(--color-accent) text-white" onClick={openAdd}><Plus size={14} />Novo Cargo</Button>
+      </div>
+      {roles.map((role) => <div key={role.id} className="flex items-center justify-between gap-4 px-5 py-4 border-b border-(--color-border) last:border-0">
+        <div className="min-w-0"><div className="flex items-center gap-2"><span className="text-[14px] font-medium">{role.name}</span>{role.systemKey && <span className="rounded-full bg-(--color-accent)/10 px-2 py-0.5 text-[10px] text-(--color-accent)">Sistema</span>}{role.status === "inactive" && <span className="text-[11px] text-(--color-danger)">Inativo</span>}</div><p className="text-[12px] text-(--color-text-secondary)">{role.employeeCount} funcionário(s) · {role.permissions.length} tela(s)</p></div>
+        <div className="flex gap-1">{role.systemKey !== "administrator" && <button onClick={() => openEdit(role)} className="p-2 text-(--color-text-secondary) hover:text-(--color-text-primary)" title="Editar"><Pencil size={15} /></button>}{!role.systemKey && <button onClick={() => { setSelected(role); setDeleteOpen(true) }} className="p-2 text-(--color-danger)" title="Remover"><Trash2 size={15} /></button>}</div>
+      </div>)}
+    </div>
+
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>{selected ? "Editar Cargo" : "Novo Cargo"}</DialogTitle></DialogHeader>
+      <div className="flex flex-col gap-4 py-2"><div className="flex flex-col gap-1.5"><Label htmlFor="job-role-name">Nome</Label><Input id="job-role-name" value={form.name} disabled={Boolean(selected?.systemKey)} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex: Gerente" /></div><div className="flex flex-col gap-1.5"><Label htmlFor="job-role-description">Descrição</Label><Input id="job-role-description" value={form.description} disabled={protectedAdministrator} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
+        {selected && !selected.systemKey && <div className="flex items-center justify-between"><div><Label>Status</Label><p className="text-[12px] text-(--color-text-secondary)">Cargos inativos não podem ser atribuídos.</p></div><Switch checked={form.status === "active"} onCheckedChange={(checked) => setForm({ ...form, status: checked ? "active" : "inactive" })} /></div>}
+        <div className="border-t border-(--color-border) pt-4"><h3 className="text-[14px] font-medium">Telas disponíveis</h3>{groups.map((group) => <div key={group} className="mt-4"><p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">{group}</p><div className="flex flex-col gap-3">{permissions.filter((permission) => permission.group === group).map((permission) => <label key={permission.key} className="flex items-center justify-between gap-4"><span className="text-[13px]">{permission.label}</span><Switch disabled={protectedAdministrator} checked={protectedAdministrator || form.permissions.includes(permission.key)} onCheckedChange={(checked) => setForm({ ...form, permissions: checked ? [...form.permissions, permission.key] : form.permissions.filter((key) => key !== permission.key) })} /></label>)}</div></div>)}</div>
+      </div><DialogFooter showCloseButton={false}><Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>{!protectedAdministrator && <Button disabled={submitting || !form.name.trim()} onClick={save} className="bg-(--color-accent) text-white">Salvar</Button>}</DialogFooter></DialogContent></Dialog>
+    <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}><AlertDialogContent size="sm"><AlertDialogHeader><AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)"><TriangleAlert size={20} /></AlertDialogMedia><AlertDialogTitle>Remover cargo?</AlertDialogTitle><AlertDialogDescription>O cargo {selected?.name} será removido. Isso só é permitido se nenhum funcionário estiver associado.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={remove} disabled={submitting} className="bg-(--color-danger) text-white">Remover</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+  </>
+}
+
 function PreferencesPanel() {
   const user = useUserStore((s) => s.user)
 
@@ -602,7 +671,7 @@ function PreferencesPanel() {
             <div className="flex flex-col gap-1">
               <span className="text-[12px] text-(--color-text-secondary)">Cargo</span>
               <span className="text-[14px] text-(--color-text-primary)">
-                {user?.role === "admin" ? "Administrador" : "Funcionário"}
+                {user?.jobRole?.name ?? (user?.role === "admin" ? "Administrador" : "Operador")}
               </span>
             </div>
           </div>

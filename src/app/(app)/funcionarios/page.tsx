@@ -39,6 +39,10 @@ import {
 } from "@/components/ui/select"
 import type { Employee } from "@/types/employee"
 import { formatPhone, formatPhoneInput, phoneDigits } from "@/lib/formatters"
+import { canArchiveEmployee } from "@/lib/accessControl"
+import { useUserStore } from "@/store/userStore"
+import { useJobRolesStore } from "@/store/jobRolesStore"
+import type { JobRole } from "@/types/job-role"
 
 interface ApiEmployee {
   id: string
@@ -46,6 +50,7 @@ interface ApiEmployee {
   email: string
   phone: string | null
   role: "admin" | "funcionario"
+  jobRole: { id: string; name: string; systemKey: "administrator" | "operator" | null }
   status: "active" | "inactive"
   version: number
   createdAt: string
@@ -57,7 +62,8 @@ function employee(value: ApiEmployee): Employee {
     name: value.name,
     email: value.email,
     phone: formatPhone(value.phone ?? ""),
-    role: value.role === "admin" ? "Administrador" : "Funcionário",
+    role: value.jobRole.name,
+    jobRoleId: value.jobRole.id,
     status: value.status === "active" ? "Ativo" : "Inativo",
     version: value.version,
     createdAt: value.createdAt,
@@ -105,14 +111,17 @@ interface EmployeeForm {
   name: string
   email: string
   phone: string
-  role: "Funcionário" | "Administrador"
+  jobRoleId: string
   status: "Ativo" | "Inativo"
   password: string
 }
 
-const EMPTY_FORM: EmployeeForm = { name: "", email: "", phone: "", role: "Funcionário", status: "Ativo", password: "" }
+const EMPTY_FORM: EmployeeForm = { name: "", email: "", phone: "", jobRoleId: "", status: "Ativo", password: "" }
 
 export default function FuncionariosPage() {
+  const currentUserId = useUserStore((state) => state.user?.id)
+  const roles = useJobRolesStore((state) => state.roles)
+  const loadRoles = useJobRolesStore((state) => state.load)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("todos")
@@ -126,10 +135,10 @@ export default function FuncionariosPage() {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    void fetchAllPages<ApiEmployee>("employees")
-      .then((response) => setEmployees(response.map(employee)))
+    void Promise.all([fetchAllPages<ApiEmployee>("employees"), loadRoles()])
+      .then(([response]) => setEmployees(response.map(employee)))
       .catch(() => toast.error("Não foi possível carregar os funcionários."))
-  }, [])
+  }, [loadRoles])
 
   const filtered = employees.filter((e) => {
     if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -140,7 +149,7 @@ export default function FuncionariosPage() {
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   function openAdd() {
-    setForm(EMPTY_FORM)
+    setForm({ ...EMPTY_FORM, jobRoleId: roles.find((role) => role.systemKey === "operator")?.id ?? roles.find((role) => role.status === "active")?.id ?? "" })
     setAddOpen(true)
   }
 
@@ -150,7 +159,7 @@ export default function FuncionariosPage() {
       name: employee.name,
       email: employee.email,
       phone: employee.phone,
-      role: employee.role as EmployeeForm["role"],
+      jobRoleId: employee.jobRoleId,
       status: employee.status,
       password: "",
     })
@@ -158,6 +167,7 @@ export default function FuncionariosPage() {
   }
 
   function openDelete(employee: Employee) {
+    if (!canArchiveEmployee(currentUserId, employee.id)) return
     setSelectedEmployee(employee)
     setDeleteOpen(true)
   }
@@ -172,7 +182,7 @@ export default function FuncionariosPage() {
           name: form.name,
           email: form.email,
           phone: phoneDigits(form.phone) || null,
-          role: form.role === "Administrador" ? "admin" : "funcionario",
+          jobRoleId: form.jobRoleId,
           status: form.status === "Ativo" ? "active" : "inactive",
           password: form.password,
         },
@@ -198,7 +208,7 @@ export default function FuncionariosPage() {
           name: form.name,
           email: form.email,
           phone: phoneDigits(form.phone) || null,
-          role: form.role === "Administrador" ? "admin" : "funcionario",
+          jobRoleId: form.jobRoleId,
           status: form.status === "Ativo" ? "active" : "inactive",
           ...(form.password ? { password: form.password } : {}),
         },
@@ -218,7 +228,11 @@ export default function FuncionariosPage() {
   }
 
   async function handleDelete() {
-    if (!selectedEmployee || submitting) return
+    if (
+      !selectedEmployee
+      || submitting
+      || !canArchiveEmployee(currentUserId, selectedEmployee.id)
+    ) return
     setSubmitting(true)
     try {
       await api.delete(`employees/${selectedEmployee.id}`, {
@@ -268,13 +282,15 @@ export default function FuncionariosPage() {
           >
             <UserPen size={15} />
           </button>
-          <button
-            onClick={() => openDelete(row)}
-            className="p-1.5 rounded hover:bg-(--color-danger)/10 text-(--color-danger)/60 hover:text-(--color-danger) transition-colors"
-            title="Remover funcionário"
-          >
-            <UserMinus size={15} />
-          </button>
+          {canArchiveEmployee(currentUserId, row.id) && (
+            <button
+              onClick={() => openDelete(row)}
+              className="p-1.5 rounded hover:bg-(--color-danger)/10 text-(--color-danger)/60 hover:text-(--color-danger) transition-colors"
+              title="Remover funcionário"
+            >
+              <UserMinus size={15} />
+            </button>
+          )}
         </div>
       ),
     },
@@ -330,14 +346,14 @@ export default function FuncionariosPage() {
           <DialogHeader>
             <DialogTitle>Novo Funcionário</DialogTitle>
           </DialogHeader>
-          <EmployeeFormFields form={form} onChange={setForm} />
+          <EmployeeFormFields form={form} roles={roles} lockIdentity={false} onChange={setForm} />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setAddOpen(false)}>
               Cancelar
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={!form.name || !form.email || form.password.length < 8 || submitting}
+              disabled={!form.name || !form.email || !form.jobRoleId || form.password.length < 8 || submitting}
               className="bg-(--color-accent) text-white"
             >
               Salvar
@@ -352,7 +368,12 @@ export default function FuncionariosPage() {
           <DialogHeader>
             <DialogTitle>Editar Funcionário</DialogTitle>
           </DialogHeader>
-          <EmployeeFormFields form={form} onChange={setForm} />
+          <EmployeeFormFields
+            form={form}
+            roles={roles}
+            lockIdentity={selectedEmployee?.id === currentUserId}
+            onChange={setForm}
+          />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setEditOpen(false)}>
               Cancelar
@@ -400,11 +421,17 @@ export default function FuncionariosPage() {
 
 function EmployeeFormFields({
   form,
+  roles,
+  lockIdentity,
   onChange,
 }: {
   form: EmployeeForm
+  roles: JobRole[]
+  lockIdentity: boolean
   onChange: (f: EmployeeForm) => void
 }) {
+  const selectedRoleName = roles.find((role) => role.id === form.jobRoleId)?.name
+
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-col gap-1.5">
@@ -423,6 +450,7 @@ function EmployeeFormFields({
           type="email"
           placeholder="email@exemplo.com"
           value={form.email}
+          disabled={lockIdentity}
           onChange={(e) => onChange({ ...form, email: e.target.value })}
         />
       </div>
@@ -449,15 +477,17 @@ function EmployeeFormFields({
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="employee-role">Cargo</Label>
         <Select
-          value={form.role}
-          onValueChange={(v) => onChange({ ...form, role: v as EmployeeForm["role"] })}
+          value={form.jobRoleId}
+          disabled={lockIdentity}
+          onValueChange={(jobRoleId) => jobRoleId && onChange({ ...form, jobRoleId })}
         >
           <SelectTrigger id="employee-role">
-            <SelectValue />
+            <SelectValue>{selectedRoleName ?? "Selecione um cargo"}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="Funcionário">Funcionário</SelectItem>
-            <SelectItem value="Administrador">Administrador</SelectItem>
+            {roles.filter((role) => role.status === "active").map((role) => (
+              <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -465,6 +495,7 @@ function EmployeeFormFields({
         <Label htmlFor="employee-status">Status</Label>
         <Select
           value={form.status}
+          disabled={lockIdentity}
           onValueChange={(v) => onChange({ ...form, status: v as "Ativo" | "Inativo" })}
         >
           <SelectTrigger id="employee-status">

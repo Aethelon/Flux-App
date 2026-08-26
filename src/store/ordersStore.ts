@@ -25,6 +25,7 @@ interface ApiOrder {
   estimatedValueCents: number
   column: ApiColumn
   status: "open" | "completed" | "cancelled"
+  finalSaleId: string | null
   completedAt: string | null
   version: number
 }
@@ -66,6 +67,7 @@ function order(value: ApiOrder): Order {
     priority: priority(value.priority),
     dueAt: value.dueAt?.slice(0, 10) ?? "",
     status: value.status,
+    finalSaleId: value.finalSaleId,
     version: value.version,
     ...(value.completedAt ? { completedAt: value.completedAt } : {}),
   }

@@ -48,11 +48,21 @@ interface SidebarNavProps {
 }
 
 export function SidebarNav({ collapsed }: SidebarNavProps) {
-  const role = useUserStore((s) => s.user?.role ?? "funcionario")
+  const user = useUserStore((s) => s.user)
+  const visibleSections = SECTIONS
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => canAccessRoute(
+        user?.role ?? "funcionario",
+        item.href,
+        user?.permissions,
+      )),
+    }))
+    .filter((section) => section.items.length > 0)
 
   return (
     <nav className="flex-1 overflow-y-auto px-4 flex flex-col gap-1 scrollbar-none [&::-webkit-scrollbar]:hidden">
-      {SECTIONS.map((section, i) => (
+      {visibleSections.map((section, i) => (
         <div key={section.label}>
           {i > 0 && (
             <div
@@ -77,11 +87,9 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
             </div>
           </div>
           <div className="flex flex-col gap-1">
-            {section.items
-              .filter((item) => canAccessRoute(role, item.href))
-              .map((item) => (
-                <SidebarItem key={item.href} collapsed={collapsed} {...item} />
-              ))}
+            {section.items.map((item) => (
+              <SidebarItem key={item.href} collapsed={collapsed} {...item} />
+            ))}
           </div>
         </div>
       ))}

@@ -8,6 +8,8 @@ import { UserMenu } from "./UserMenu"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCaixaStore } from "@/store/caixaStore"
+import { useUserStore } from "@/store/userStore"
+import { hasPermission } from "@/lib/accessControl"
 import {
   AbrirCaixaDialog,
   FecharCaixaDialog,
@@ -62,11 +64,15 @@ function CaixaStatusButton() {
 }
 
 export function Header() {
+  const user = useUserStore((state) => state.user)
+  const canUseCash = hasPermission(user?.role, user?.permissions, "cash.view")
+    || hasPermission(user?.role, user?.permissions, "pos.view")
+
   return (
     <header className="flex items-center justify-between h-18.5 px-10 bg-(--color-bg) shrink-0">
       <SearchBar />
       <div className="flex items-center gap-4 shrink-0">
-        <CaixaStatusButton />
+        {canUseCash && <CaixaStatusButton />}
         <DarkModeToggle />
         <UserMenu />
       </div>

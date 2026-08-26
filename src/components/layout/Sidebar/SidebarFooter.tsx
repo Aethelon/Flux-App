@@ -1,10 +1,11 @@
 "use client"
 
-import { Settings, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react"
+import { LockKeyhole, Settings, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { useUserStore } from "@/store/userStore"
+import { useSessionLock } from "@/components/layout/SessionLockProvider"
 
 interface SidebarFooterProps {
   collapsed: boolean
@@ -14,6 +15,7 @@ interface SidebarFooterProps {
 export function SidebarFooter({ collapsed, onToggle }: SidebarFooterProps) {
   const router = useRouter()
   const logout = useUserStore((s) => s.logout)
+  const { lock } = useSessionLock()
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" })
@@ -45,6 +47,11 @@ export function SidebarFooter({ collapsed, onToggle }: SidebarFooterProps) {
         <Settings size={16} className="shrink-0" />
         <span className={labelCls}>Configurações</span>
       </Link>
+
+      <button onClick={lock} className={itemCls} title={collapsed ? "Bloquear sessão" : undefined}>
+        <LockKeyhole size={16} className="shrink-0" />
+        <span className={labelCls}>Bloquear sessão</span>
+      </button>
 
       <button
         onClick={handleLogout}

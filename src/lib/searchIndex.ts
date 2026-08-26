@@ -120,10 +120,20 @@ const PAGE_ITEMS: SearchItem[] = [
   {
     id: "pagina-funcionarios",
     label: "Funcionários",
-    description: "Gestão de funcionários",
+    description: "Gestão de funcionários e perfis de acesso",
     href: "/funcionarios",
     icon: UserCog,
-    keywords: ["funcionário", "funcionários", "colaborador", "equipe", "time"],
+    keywords: [
+      "usuário",
+      "usuários",
+      "operador",
+      "operadores",
+      "funcionário",
+      "funcionários",
+      "colaborador",
+      "equipe",
+      "time",
+    ],
     group: "Páginas",
   },
   {

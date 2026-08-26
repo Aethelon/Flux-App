@@ -25,6 +25,7 @@ import {
   Plus,
   GripVertical,
   Eye,
+  BadgeDollarSign,
   Trash2,
   TriangleAlert,
   ChartNoAxesColumnIncreasing,
@@ -68,9 +69,11 @@ import {
 } from "@/components/ui/select"
 import { formatCurrency, formatMoneyInput, formatPriceInput, parsePriceInput } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
+import { applyOrderDragOver, resolveOrderDropColumnId } from "@/lib/order-dnd"
 import { useFontSizeStore, FONT_SIZE_SCALE } from "@/store/fontSizeStore"
 import { useClientsStore } from "@/store/clientsStore"
 import { orderPriority, useOrdersStore } from "@/store/ordersStore"
+import { useUserStore } from "@/store/userStore"
 import { api, idempotencyHeaders } from "@/lib/api"
 import type { KanbanColumn, Order, OrderPriority } from "@/types/order"
 
@@ -92,6 +95,12 @@ const PRIORITY_COLORS: Record<OrderPriority, string> = {
   baixa: "text-(--color-success)",
   média: "text-(--color-warning)",
   alta: "text-(--color-danger)",
+}
+
+async function apiErrorCode(error: unknown): Promise<string | null> {
+  if (!(error instanceof HTTPError)) return null
+  const body = await error.response.json<{ code?: string }>().catch(() => null)
+  return body?.code ?? null
 }
 
 function formatDueDate(iso: string): string {
@@ -131,6 +140,8 @@ export default function OrdensPage() {
   const loadOrders = useOrdersStore((state) => state.loadOrders)
   const clients = useClientsStore((state) => state.clients)
   const loadClients = useClientsStore((state) => state.loadClients)
+  const user = useUserStore((state) => state.user)
+  const isAdmin = user?.role === "admin"
 
   useEffect(() => {
     void Promise.all([loadOrders(), loadClients()])
@@ -170,18 +181,17 @@ export default function OrdensPage() {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false)
   const fontScale = FONT_SIZE_SCALE[useFontSizeStore((s) => s.fontSize)]
 
-  // Resolve the column an "over" target belongs to (target may be a column or a card).
-  function resolveColumnId(overId: string, list: Order[]): string | null {
-    if (columns.some((c) => c.id === overId)) return overId
-    return list.find((o) => o.id === overId)?.columnId ?? null
-  }
-
   function handleDragStart(event: DragStartEvent) {
     const { active } = event
     if (active.data.current?.type === "column") {
+      if (!isAdmin) return
       setActiveColumn(columns.find((c) => c.id === active.id) ?? null)
     } else {
       const card = orders.find((o) => o.id === active.id) ?? null
+      if (card?.finalSaleId) {
+        toast.info("Esta ordem já foi vendida e não pode ser movimentada.")
+        return
+      }
       setActiveCard(card)
       setOverColumnId(card?.columnId ?? null)
     }
@@ -195,29 +205,14 @@ export default function OrdensPage() {
     const activeId = String(active.id)
     const overId = String(over.id)
 
-    setOrders((prev) => {
-      const activeIndex = prev.findIndex((o) => o.id === activeId)
-      if (activeIndex === -1) return prev
-
-      const targetColId = resolveColumnId(overId, prev)
-      if (!targetColId) return prev
-      setOverColumnId(targetColId)
-
-      // Same column: let onDragEnd handle the final ordering.
-      if (prev[activeIndex].columnId === targetColId) return prev
-
-      const next = [...prev]
-      const [moved] = next.splice(activeIndex, 1)
-      const updatedMoved = { ...moved, columnId: targetColId }
-
-      const overIsColumn = columns.some((c) => c.id === overId)
-      if (overIsColumn) {
-        next.push(updatedMoved)
-      } else {
-        const overIndex = next.findIndex((o) => o.id === overId)
-        next.splice(overIndex === -1 ? next.length : overIndex, 0, updatedMoved)
-      }
-      return next
+    applyOrderDragOver({
+      columns,
+      orders,
+      activeId,
+      overId,
+      overColumnId,
+      setOverColumnId,
+      setOrders,
     })
   }
 
@@ -237,7 +232,8 @@ export default function OrdensPage() {
     }
 
     if (active.data.current?.type === "column") {
-      const overColId = resolveColumnId(String(over.id), orders)
+      if (!isAdmin) return
+      const overColId = resolveOrderDropColumnId(columns, orders, String(over.id))
       if (!overColId || overColId === active.id) return
       const oldIndex = columns.findIndex((column) => column.id === active.id)
       const newIndex = columns.findIndex((column) => column.id === overColId)
@@ -284,7 +280,12 @@ export default function OrdensPage() {
           reason: "Moved through the service-order board.",
         },
       }).then(loadOrders)
-        .catch(() => {
+        .catch(async (error: unknown) => {
+          if (await apiErrorCode(error) === "SERVICE_ORDER_ALREADY_BILLED") {
+            toast.info("Esta ordem já foi vendida e não pode ser movimentada.")
+            void loadOrders()
+            return
+          }
           toast.error("Não foi possível mover a ordem.")
           void loadOrders()
         })
@@ -402,6 +403,10 @@ export default function OrdensPage() {
   }
 
   async function handleSaveOrder() {
+    if (selectedOrder?.finalSaleId) {
+      toast.info("Esta ordem já foi vendida e não pode ser alterada.")
+      return
+    }
     if (!form.title.trim()) {
       toast.error("Informe o título da ordem.")
       return
@@ -415,12 +420,34 @@ export default function OrdensPage() {
       toast.error("Selecione um cliente cadastrado.")
       return
     }
-    if (orderModalMode === "add") {
-      await api.post("service-orders", {
+    try {
+      if (orderModalMode === "add") {
+        await api.post("service-orders", {
+          headers: idempotencyHeaders(),
+          json: {
+            customerId: customer.id,
+            columnId: form.columnId || columns[0]?.id,
+            title: form.title,
+            description: form.description,
+            priority: orderPriority(form.priority),
+            dueAt: form.dueAt
+              ? new Date(`${form.dueAt}T12:00:00`).toISOString()
+              : null,
+            estimatedValueCents: Math.round(parsePriceInput(form.value) * 100),
+          },
+        })
+        await loadOrders()
+        setOrderModalOpen(false)
+        toast.success("Ordem de serviço adicionada com sucesso.")
+        return
+      }
+
+      if (!selectedOrder) return
+      const updated = await api.patch(`service-orders/${selectedOrder.id}`, {
         headers: idempotencyHeaders(),
         json: {
+          version: selectedOrder.version,
           customerId: customer.id,
-          columnId: form.columnId || columns[0]?.id,
           title: form.title,
           description: form.description,
           priority: orderPriority(form.priority),
@@ -429,62 +456,67 @@ export default function OrdensPage() {
             : null,
           estimatedValueCents: Math.round(parsePriceInput(form.value) * 100),
         },
-      })
+      }).json<{ version: number }>()
+      if (form.columnId !== selectedOrder.columnId) {
+        await api.post(`service-orders/${selectedOrder.id}/transitions`, {
+          headers: idempotencyHeaders(),
+          json: {
+            version: updated.version,
+            columnId: form.columnId,
+            reason: "Moved while editing the service order.",
+          },
+        })
+      }
       await loadOrders()
       setOrderModalOpen(false)
-      toast.success("Ordem de serviço adicionada com sucesso.")
-      return
+      toast.success("Ordem de serviço atualizada.")
+    } catch (error: unknown) {
+      if (await apiErrorCode(error) === "SERVICE_ORDER_ALREADY_BILLED") {
+        toast.info("Esta ordem já foi vendida e não pode ser alterada.")
+        await loadOrders()
+        setOrderModalOpen(false)
+        return
+      }
+      toast.error(orderModalMode === "add"
+        ? "Não foi possível criar a ordem."
+        : "Não foi possível atualizar a ordem.")
     }
-
-    if (!selectedOrder) return
-    const updated = await api.patch(`service-orders/${selectedOrder.id}`, {
-      headers: idempotencyHeaders(),
-      json: {
-        version: selectedOrder.version,
-        customerId: customer.id,
-        title: form.title,
-        description: form.description,
-        priority: orderPriority(form.priority),
-        dueAt: form.dueAt
-          ? new Date(`${form.dueAt}T12:00:00`).toISOString()
-          : null,
-        estimatedValueCents: Math.round(parsePriceInput(form.value) * 100),
-      },
-    }).json<{ version: number }>()
-    if (form.columnId !== selectedOrder.columnId) {
-      await api.post(`service-orders/${selectedOrder.id}/transitions`, {
-        headers: idempotencyHeaders(),
-        json: {
-          version: updated.version,
-          columnId: form.columnId,
-          reason: "Moved while editing the service order.",
-        },
-      })
-    }
-    await loadOrders()
-    setOrderModalOpen(false)
-    toast.success("Ordem de serviço atualizada.")
   }
 
   async function handleDeleteOrder() {
     if (!selectedOrder) return
+    if (selectedOrder.finalSaleId) {
+      toast.info("Esta ordem já foi vendida e não pode ser alterada.")
+      return
+    }
     const cancelled = columns.find((column) => column.semanticType === "cancelled")
     if (!cancelled) {
       toast.error("A coluna de cancelamento não está configurada.")
       return
     }
-    await api.post(`service-orders/${selectedOrder.id}/transitions`, {
-      headers: idempotencyHeaders(),
-      json: {
-        version: selectedOrder.version,
-        columnId: cancelled.id,
-        reason: "Cancelled through the service-order board.",
-      },
-    })
-    await loadOrders()
-    setDeleteOrderOpen(false)
-    toast.success(`${selectedOrder.title} foi cancelada.`)
-    setSelectedOrder(null)
+    try {
+      await api.post(`service-orders/${selectedOrder.id}/transitions`, {
+        headers: idempotencyHeaders(),
+        json: {
+          version: selectedOrder.version,
+          columnId: cancelled.id,
+          reason: "Cancelled through the service-order board.",
+        },
+      })
+      await loadOrders()
+      setDeleteOrderOpen(false)
+      toast.success(`${selectedOrder.title} foi cancelada.`)
+      setSelectedOrder(null)
+    } catch (error: unknown) {
+      if (await apiErrorCode(error) === "SERVICE_ORDER_ALREADY_BILLED") {
+        toast.info("Esta ordem já foi vendida e não pode ser alterada.")
+        await loadOrders()
+        setDeleteOrderOpen(false)
+        setSelectedOrder(null)
+        return
+      }
+      toast.error("Não foi possível cancelar a ordem.")
+    }
   }
 
   const LIST_PER_PAGE = 10
@@ -537,11 +569,20 @@ export default function OrdensPage() {
       label: "Ações",
       className: "text-right",
       render: (row) => (
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-end gap-1">
+          {row.finalSaleId && (
+            <span
+              className="rounded p-1.5 text-(--color-success)"
+              title="Ordem vendida"
+              aria-label="Ordem vendida"
+            >
+              <BadgeDollarSign size={15} />
+            </span>
+          )}
           <button
             onClick={() => openOrder(row)}
             className="p-1.5 rounded hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-            title="Abrir ordem"
+            title={row.finalSaleId ? "Visualizar ordem vendida" : "Abrir ordem"}
           >
             <Eye size={15} />
           </button>
@@ -584,10 +625,12 @@ export default function OrdensPage() {
           </button>
         </div>
         {viewMode === "kanban" ? (
-          <Button className="w-40 justify-center gap-2 bg-(--color-accent) text-white" onClick={openAddColumn}>
-            <Plus size={16} />
-            Nova Coluna
-          </Button>
+          isAdmin ? (
+            <Button className="w-40 justify-center gap-2 bg-(--color-accent) text-white" onClick={openAddColumn}>
+              <Plus size={16} />
+              Nova Coluna
+            </Button>
+          ) : <span />
         ) : (
           <Button
             className="w-40 justify-center gap-2 bg-(--color-accent) text-white"
@@ -617,6 +660,7 @@ export default function OrdensPage() {
                   column={column}
                   orders={orders.filter((o) => o.columnId === column.id)}
                   isDropTarget={activeCard !== null && overColumnId === column.id}
+                  canManageColumn={isAdmin}
                   onAddTask={() => openAddOrder(column.id)}
                   onEditColumn={() => openEditColumn(column)}
                   onOpenOrder={openOrder}
@@ -780,6 +824,7 @@ export default function OrdensPage() {
         form={form}
         onChange={setForm}
         columns={columns}
+        readOnly={Boolean(selectedOrder?.finalSaleId)}
         onSave={handleSaveOrder}
         onDelete={() => {
           setOrderModalOpen(false)
@@ -820,6 +865,7 @@ function KanbanColumnView({
   column,
   orders,
   isDropTarget,
+  canManageColumn,
   onAddTask,
   onEditColumn,
   onOpenOrder,
@@ -827,6 +873,7 @@ function KanbanColumnView({
   column: KanbanColumn
   orders: Order[]
   isDropTarget: boolean
+  canManageColumn: boolean
   onAddTask: () => void
   onEditColumn: () => void
   onOpenOrder: (order: Order) => void
@@ -834,6 +881,7 @@ function KanbanColumnView({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
     data: { type: "column" },
+    disabled: !canManageColumn,
   })
 
   const style = {
@@ -855,23 +903,34 @@ function KanbanColumnView({
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <button
-            {...attributes}
-            {...listeners}
-            className="cursor-grab touch-none p-0.5 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors active:cursor-grabbing"
-            title="Arrastar coluna"
-          >
-            <GripVertical size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={onEditColumn}
-            title="Editar coluna"
-            className="inline-flex items-center rounded px-2 py-1 text-[13px] font-medium text-white transition-opacity hover:opacity-80 cursor-pointer"
-            style={{ backgroundColor: `var(${column.color})` }}
-          >
-            {column.label}
-          </button>
+          {canManageColumn && (
+            <button
+              {...attributes}
+              {...listeners}
+              className="cursor-grab touch-none p-0.5 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors active:cursor-grabbing"
+              title="Arrastar coluna"
+            >
+              <GripVertical size={16} />
+            </button>
+          )}
+          {canManageColumn ? (
+            <button
+              type="button"
+              onClick={onEditColumn}
+              title="Editar coluna"
+              className="inline-flex cursor-pointer items-center rounded px-2 py-1 text-[13px] font-medium text-white transition-opacity hover:opacity-80"
+              style={{ backgroundColor: `var(${column.color})` }}
+            >
+              {column.label}
+            </button>
+          ) : (
+            <span
+              className="inline-flex items-center rounded px-2 py-1 text-[13px] font-medium text-white"
+              style={{ backgroundColor: `var(${column.color})` }}
+            >
+              {column.label}
+            </span>
+          )}
           <span className="inline-flex items-center justify-center rounded bg-(--color-surface-raised) px-2 py-1 text-[13px] font-medium text-(--color-text-primary)">
             {orders.length}
           </span>
@@ -937,14 +996,25 @@ function CardBody({
       </div>
       <div className="flex items-center justify-between">
         <ChartNoAxesColumnIncreasing size={16} className={PRIORITY_COLORS[order.priority]} />
-        <button
-          onClick={(e) => { e.stopPropagation(); onOpen?.() }}
-          onPointerDown={(e) => e.stopPropagation()}
-          className="flex items-center justify-center rounded bg-(--color-surface) p-1 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-          title="Abrir ordem"
-        >
-          <Eye size={14} />
-        </button>
+        <div className="flex items-center gap-1">
+          {order.finalSaleId && (
+            <span
+              className="flex items-center justify-center rounded bg-(--color-success)/10 p-1 text-(--color-success)"
+              title="Ordem vendida"
+              aria-label="Ordem vendida"
+            >
+              <BadgeDollarSign size={14} />
+            </span>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpen?.() }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="flex items-center justify-center rounded bg-(--color-surface) p-1 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
+            title={order.finalSaleId ? "Visualizar ordem vendida" : "Abrir ordem"}
+          >
+            <Eye size={14} />
+          </button>
+        </div>
       </div>
     </>
   )
@@ -960,6 +1030,7 @@ function OrderCard({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: order.id,
     data: { type: "card", columnId: order.columnId },
+    disabled: Boolean(order.finalSaleId),
   })
 
   const style = {
@@ -982,9 +1053,16 @@ function OrderCard({
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
-      className="flex cursor-grab touch-none flex-col gap-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-3 transition-shadow hover:border-(--color-text-secondary)/30 active:cursor-grabbing"
+      {...(order.finalSaleId ? {} : attributes)}
+      {...(order.finalSaleId
+        ? { onPointerDown: () => toast.info("Esta ordem já foi vendida e não pode ser movimentada.") }
+        : listeners)}
+      className={cn(
+        "flex touch-none flex-col gap-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-3 transition-shadow",
+        order.finalSaleId
+          ? "cursor-not-allowed opacity-80"
+          : "cursor-grab hover:border-(--color-text-secondary)/30 active:cursor-grabbing"
+      )}
     >
       <CardBody order={order} onOpen={onOpen} />
     </div>
@@ -1006,6 +1084,7 @@ function OrderDialog({
   form,
   onChange,
   columns,
+  readOnly,
   onSave,
   onDelete,
 }: {
@@ -1015,17 +1094,19 @@ function OrderDialog({
   form: OrderForm
   onChange: (f: OrderForm) => void
   columns: KanbanColumn[]
+  readOnly: boolean
   onSave: () => void
   onDelete: () => void
 }) {
   const isEdit = mode === "edit"
-  const canCancel = columns.find((column) => column.id === form.columnId)?.semanticType === "open"
+  const canCancel = !readOnly
+    && columns.find((column) => column.id === form.columnId)?.semanticType === "open"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogTitle className="sr-only">
-          {isEdit ? "Editar ordem de serviço" : "Nova ordem de serviço"}
+          {readOnly ? "Visualizar ordem vendida" : isEdit ? "Editar ordem de serviço" : "Nova ordem de serviço"}
         </DialogTitle>
 
         <div className="flex flex-col gap-1.5 pr-10">
@@ -1034,6 +1115,7 @@ function OrderDialog({
             id="order-title"
             placeholder="Título da ordem de serviço"
             value={form.title}
+            disabled={readOnly}
             onChange={(e) => onChange({ ...form, title: e.target.value })}
             className="text-[18px] font-semibold"
           />
@@ -1046,6 +1128,7 @@ function OrderDialog({
               id="order-description"
               placeholder="Descrição detalhada do serviço"
               value={form.description}
+              disabled={readOnly}
               onChange={(e) => onChange({ ...form, description: e.target.value })}
               className="min-h-40"
             />
@@ -1057,6 +1140,7 @@ function OrderDialog({
               <Select
                 items={columns.map((column) => ({ value: column.id, label: column.label }))}
                 value={form.columnId}
+                disabled={readOnly}
                 onValueChange={(v) => onChange({ ...form, columnId: v as string })}
               >
                 <SelectTrigger id="order-status" className="w-full">
@@ -1074,6 +1158,7 @@ function OrderDialog({
               <ClientCombobox
                 id="order-client"
                 value={form.client}
+                disabled={readOnly}
                 onChange={(client) => onChange({ ...form, client })}
               />
             </div>
@@ -1084,6 +1169,7 @@ function OrderDialog({
                 inputMode="decimal"
                 placeholder="Ex: 250,00"
                 value={form.value}
+                disabled={readOnly}
                 onChange={(e) =>
                   onChange({ ...form, value: formatMoneyInput(e.target.value) })
                 }
@@ -1093,6 +1179,7 @@ function OrderDialog({
               <Label htmlFor="order-priority">Prioridade</Label>
               <Select
                 value={form.priority}
+                disabled={readOnly}
                 onValueChange={(v) => onChange({ ...form, priority: v as OrderPriority })}
               >
                 <SelectTrigger id="order-priority" className="w-full">
@@ -1111,6 +1198,7 @@ function OrderDialog({
                 id="order-due"
                 type="date"
                 value={form.dueAt}
+                disabled={readOnly}
                 onChange={(e) => onChange({ ...form, dueAt: e.target.value })}
               />
             </div>
@@ -1133,14 +1221,16 @@ function OrderDialog({
           )}
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancelar
+              {readOnly ? "Fechar" : "Cancelar"}
             </Button>
-            <Button
-              onClick={onSave}
-              className="bg-(--color-accent) text-white"
-            >
-              {isEdit ? "Salvar Alterações" : "Criar Ordem"}
-            </Button>
+            {!readOnly && (
+              <Button
+                onClick={onSave}
+                className="bg-(--color-accent) text-white"
+              >
+                {isEdit ? "Salvar Alterações" : "Criar Ordem"}
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>
