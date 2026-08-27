@@ -51,6 +51,8 @@ type RankingType = "product" | "service"
 type RunningAction = "forecast" | "recommendation" | "insight" | "refresh" | null
 type MetricTone = "success" | "warning" | "danger" | "accent"
 
+const SALES_RANKING_LIMIT = 10
+
 const PERIOD_OPTIONS: Array<{ value: Period; label: string }> = [
   { value: "monthly", label: "Mensal" },
   { value: "quarterly", label: "Trimestral" },
@@ -807,10 +809,10 @@ export default function InteligenciaPage() {
   ))
   const highestSales = [...rankedItems].sort((left, right) => (
     right.netRevenueCents - left.netRevenueCents || right.unitsSold - left.unitsSold
-  ))
+  )).slice(0, SALES_RANKING_LIMIT)
   const lowestSales = [...rankedItems].sort((left, right) => (
     left.netRevenueCents - right.netRevenueCents || left.unitsSold - right.unitsSold
-  ))
+  )).slice(0, SALES_RANKING_LIMIT)
   const unitTurnover = dashboard?.inventory.unitTurnover ?? null
   const coverageDays = dashboard?.inventory.coverageDays ?? null
   const stockoutRate = dashboard?.inventory.stockoutRate ?? null

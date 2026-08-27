@@ -83,6 +83,8 @@ interface OrdersStore {
   loadOrders: () => Promise<void>
 }
 
+let ordersLoadPromise: Promise<void> | null = null
+
 export const useOrdersStore = create<OrdersStore>((set) => ({
   columns: [],
   orders: [],
@@ -92,16 +94,23 @@ export const useOrdersStore = create<OrdersStore>((set) => ({
   setOrders: (update) => set((state) => ({
     orders: typeof update === "function" ? update(state.orders) : update,
   })),
-  loadOrders: async () => {
-    const [columns, orders] = await Promise.all([
+  loadOrders: () => {
+    if (ordersLoadPromise) return ordersLoadPromise
+
+    ordersLoadPromise = Promise.all([
       api.get("service-order-columns").json<ApiColumn[]>(),
       api.get("service-orders", {
         searchParams: { view: "board" },
       }).json<ApiOrder[]>(),
-    ])
-    set({
-      columns: columns.map(column),
-      orders: orders.map(order),
+    ]).then(([columns, orders]) => {
+      set({
+        columns: columns.map(column),
+        orders: orders.map(order),
+      })
+    }).finally(() => {
+      ordersLoadPromise = null
     })
+
+    return ordersLoadPromise
   },
 }))

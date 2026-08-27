@@ -12,7 +12,6 @@ import { hasPermission } from "@/lib/accessControl"
 import { cn } from "@/lib/utils"
 import { useAnalyticsStore } from "@/store/analyticsStore"
 import { useOrdersStore } from "@/store/ordersStore"
-import { useProductsStore } from "@/store/productsStore"
 import { useUserStore } from "@/store/userStore"
 
 const CARD = "rounded-xl border border-(--color-border) bg-(--color-surface) p-6"
@@ -78,18 +77,14 @@ export default function DashboardPage() {
   const columns = useOrdersStore((state) => state.columns)
   const orders = useOrdersStore((state) => state.orders)
   const loadOrders = useOrdersStore((state) => state.loadOrders)
-  const products = useProductsStore((state) => state.products)
-  const loadProducts = useProductsStore((state) => state.loadProducts)
 
   useEffect(() => {
     if (!user) return
-    void Promise.all([loadDashboard(undefined, canViewIntelligence), loadOrders(), loadProducts()])
+    void Promise.all([loadDashboard(undefined, canViewIntelligence), loadOrders()])
       .catch(() => toast.error("Não foi possível carregar o dashboard."))
-  }, [canViewIntelligence, loadDashboard, loadOrders, loadProducts, user])
+  }, [canViewIntelligence, loadDashboard, loadOrders, user])
 
-  const stockAlerts = products.filter(
-    (product) => product.status === "Baixo estoque" || product.status === "Esgotado"
-  )
+  const stockAlerts = dashboard?.inventory.alerts ?? []
   const revenuePoints = (trendDashboard?.revenueSeries ?? dashboard?.revenueSeries ?? [])
     .map((point, index, series) => ({
     label: monthLabel(point.bucketStart),
@@ -180,20 +175,20 @@ export default function DashboardPage() {
             <TriangleAlert size={18} className="text-(--color-warning)" />
           </div>
           <div className="flex flex-col gap-2">
-            {stockAlerts.slice(0, 3).map((product) => (
-              <div key={product.id} className="flex items-center justify-between gap-2 text-[14px]">
+            {stockAlerts.map((product) => (
+              <div key={product.productId} className="flex items-center justify-between gap-2 text-[14px]">
                 <span className="truncate text-(--color-text-primary)">{product.name}</span>
-                <span className={product.status === "Esgotado" ? "text-(--color-danger)" : "text-(--color-warning)"}>
-                  {product.status === "Esgotado" ? "Esgotado" : "Baixo"}
+                <span className={product.status === "sold_out" ? "text-(--color-danger)" : "text-(--color-warning)"}>
+                  {product.status === "sold_out" ? "Esgotado" : "Baixo"}
                 </span>
               </div>
             ))}
-            {stockAlerts.length > 3 && canViewInventory && (
+            {(dashboard?.inventory.lowStockCount ?? 0) + (dashboard?.inventory.soldOutCount ?? 0) > 3 && canViewInventory && (
               <Link
                 href="/inventario"
                 className="mt-1 text-[13px] font-medium text-(--color-accent) hover:underline"
               >
-                Ver todos os {stockAlerts.length} itens
+                Ver todos os {(dashboard?.inventory.lowStockCount ?? 0) + (dashboard?.inventory.soldOutCount ?? 0)} itens
               </Link>
             )}
           </div>

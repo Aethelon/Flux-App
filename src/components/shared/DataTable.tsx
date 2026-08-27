@@ -50,6 +50,40 @@ function getNestedValue<T>(obj: T, key: string): unknown {
   return (obj as Record<string, unknown>)[key]
 }
 
+type PaginationItem = number | "start-ellipsis" | "end-ellipsis"
+
+function paginationItems(currentPage: number, totalPages: number): PaginationItem[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }
+
+  if (currentPage <= 4) {
+    return [1, 2, 3, 4, 5, "end-ellipsis", totalPages]
+  }
+
+  if (currentPage >= totalPages - 3) {
+    return [
+      1,
+      "start-ellipsis",
+      totalPages - 4,
+      totalPages - 3,
+      totalPages - 2,
+      totalPages - 1,
+      totalPages,
+    ]
+  }
+
+  return [
+    1,
+    "start-ellipsis",
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+    "end-ellipsis",
+    totalPages,
+  ]
+}
+
 export function DataTable<T>({
   columns,
   data,
@@ -67,6 +101,7 @@ export function DataTable<T>({
   const totalPages = pagination ? Math.ceil(pagination.total / pagination.perPage) : 1
   const start = pagination ? (pagination.page - 1) * pagination.perPage + 1 : 1
   const end = pagination ? Math.min(pagination.page * pagination.perPage, pagination.total) : data.length
+  const visiblePages = pagination ? paginationItems(pagination.page, totalPages) : []
 
   return (
     <div className={cn("rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden", className)}>
@@ -164,19 +199,24 @@ export function DataTable<T>({
             >
               ‹
             </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-              <button
-                key={p}
-                onClick={() => pagination.onChange(p)}
-                className={cn(
-                  "px-2.5 py-1 rounded transition-colors",
-                  p === pagination.page
-                    ? "bg-(--color-accent) text-white"
-                    : "hover:bg-(--color-surface-raised)"
-                )}
-              >
-                {p}
-              </button>
+            {visiblePages.map((item) => (
+              typeof item === "number" ? (
+                <button
+                  key={item}
+                  onClick={() => pagination.onChange(item)}
+                  aria-current={item === pagination.page ? "page" : undefined}
+                  className={cn(
+                    "px-2.5 py-1 rounded transition-colors",
+                    item === pagination.page
+                      ? "bg-(--color-accent) text-white"
+                      : "hover:bg-(--color-surface-raised)"
+                  )}
+                >
+                  {item}
+                </button>
+              ) : (
+                <span key={item} className="px-1" aria-hidden="true">…</span>
+              )
             ))}
             <button
               onClick={() => pagination.onChange(pagination.page + 1)}

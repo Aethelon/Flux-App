@@ -23,6 +23,7 @@ interface ApiPage<T> {
 export async function fetchAllPages<T>(
   path: string,
   searchParams: Record<string, string | number | boolean> = {},
+  pageSize = 100,
 ): Promise<T[]> {
   const data: T[] = []
   let page = 1
@@ -30,7 +31,7 @@ export async function fetchAllPages<T>(
 
   do {
     const response = await api.get(path, {
-      searchParams: { ...searchParams, page, pageSize: 100 },
+      searchParams: { ...searchParams, page, pageSize },
     }).json<ApiPage<T>>()
     data.push(...response.data)
     total = response.total

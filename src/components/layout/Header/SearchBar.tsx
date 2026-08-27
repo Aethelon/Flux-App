@@ -34,6 +34,8 @@ export function SearchBar() {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const loadedForUserRef = useRef<string | null>(null)
+  const searchLoadPromiseRef = useRef<Promise<void> | null>(null)
 
   const groups = useMemo(
     () =>
@@ -45,24 +47,35 @@ export function SearchBar() {
   )
   const showResults = open && query.trim().length > 0
 
-  // ⌘K foca a barra (antes abria um modal separado).
-  useEffect(() => {
+  function ensureSearchData() {
     if (!user) return
+    if (loadedForUserRef.current === user.id || searchLoadPromiseRef.current) return
+
     const canLoadClients = ["/clientes", "/ordens", "/frente-de-caixa", "/historico"]
       .some((route) => canAccessRoute(user.role, route, user.permissions))
     const canLoadProducts = ["/inventario", "/frente-de-caixa", "/dashboard"]
       .some((route) => canAccessRoute(user.role, route, user.permissions))
     const canLoadOrders = ["/ordens", "/frente-de-caixa", "/dashboard", "/inteligencia"]
       .some((route) => canAccessRoute(user.role, route, user.permissions))
-    void Promise.all([
-      ...(canLoadClients ? [loadClients()] : []),
-      ...(canLoadProducts ? [loadProducts()] : []),
-      ...(canLoadOrders ? [loadOrders()] : []),
-      ...(canAccessRoute(user.role, "/historico", user.permissions) ? [loadHistorySearch()] : []),
-    ])
+    searchLoadPromiseRef.current = (async () => {
+      if (canLoadClients && clients.length === 0) await loadClients()
+      if (canLoadProducts && products.length === 0) await loadProducts()
+      if (canLoadOrders && columns.length === 0 && orders.length === 0) await loadOrders()
+      if (
+        canAccessRoute(user.role, "/historico", user.permissions)
+        && history.length === 0
+      ) await loadHistorySearch()
+    })()
+      .then(() => {
+        loadedForUserRef.current = user.id
+      })
       .catch(() => undefined)
-  }, [loadClients, loadHistorySearch, loadOrders, loadProducts, user])
+      .finally(() => {
+        searchLoadPromiseRef.current = null
+      })
+  }
 
+  // ⌘K foca a barra (antes abria um modal separado).
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -118,7 +131,10 @@ export function SearchBar() {
             setQuery(value)
             setOpen(true)
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true)
+            ensureSearchData()
+          }}
           placeholder="Pesquisar produtos, clientes, ordens..."
           className="w-full bg-transparent outline-none
             text-(--color-text-primary) text-[14px] font-semibold

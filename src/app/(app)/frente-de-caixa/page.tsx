@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react"
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type UIEvent } from "react"
 import {
   Search,
   Minus,
@@ -315,6 +315,7 @@ function OrderStepper({
 }
 
 export default function FrenteDeCaixaPage() {
+  const CATALOG_BATCH_SIZE = 60
   const [cart, setCart] = useState<Record<string, number>>({})
   const [orderCart, setOrderCart] = useState<string[]>([])
   const [search, setSearch] = useState("")
@@ -323,6 +324,7 @@ export default function FrenteDeCaixaPage() {
   // renderização, então não precisa ficar 100% sincronizado a cada mudança
   // de lista — só é reiniciado quando a busca ou a categoria mudam.
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [visibleProductCount, setVisibleProductCount] = useState(CATALOG_BATCH_SIZE)
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   const [client, setClient] = useState("")
@@ -365,11 +367,13 @@ export default function FrenteDeCaixaPage() {
   function updateSearch(value: string) {
     setSearch(value)
     setSelectedIndex(0)
+    setVisibleProductCount(CATALOG_BATCH_SIZE)
   }
 
   function selectCategory(value: string) {
     setCategory(value)
     setSelectedIndex(0)
+    setVisibleProductCount(CATALOG_BATCH_SIZE)
   }
 
   useEffect(() => {
@@ -405,6 +409,7 @@ export default function FrenteDeCaixaPage() {
     if (!q) return true
     return normalize(o.title).includes(q) || normalize(o.client).includes(q)
   })
+  const visibleCatalog = filteredCatalog.slice(0, visibleProductCount)
 
   const productLines: CartLine[] = CATALOG.filter((p) => cart[p.id] > 0).map((p) => ({
     id: p.id,
@@ -792,12 +797,31 @@ export default function FrenteDeCaixaPage() {
 
     event.preventDefault()
     next = Math.max(0, Math.min(list.length - 1, next))
+    if (!showingOrders && next >= visibleProductCount) {
+      setVisibleProductCount(Math.min(
+        filteredCatalog.length,
+        Math.ceil((next + 1) / CATALOG_BATCH_SIZE) * CATALOG_BATCH_SIZE,
+      ))
+    }
     setSelectedIndex(next)
-    cardRefs.current[next]?.scrollIntoView({ block: "nearest" })
+    window.setTimeout(() => {
+      cardRefs.current[next]?.scrollIntoView({ block: "nearest" })
+    }, 0)
   }
 
   const activeList = showingOrders ? filteredOrders : filteredCatalog
   const activeIndex = Math.min(selectedIndex, activeList.length - 1)
+
+  function handleCatalogScroll(event: UIEvent<HTMLDivElement>) {
+    if (showingOrders || visibleProductCount >= filteredCatalog.length) return
+    const element = event.currentTarget
+    const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight
+    if (distanceToBottom > 240) return
+    setVisibleProductCount((current) => Math.min(
+      current + CATALOG_BATCH_SIZE,
+      filteredCatalog.length,
+    ))
+  }
 
   return (
     <div className="-mb-6 flex h-[calc(100dvh-var(--header-height)-3.5rem)] flex-col gap-4">
@@ -911,7 +935,10 @@ export default function FrenteDeCaixaPage() {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto p-1"
+            onScroll={handleCatalogScroll}
+          >
             {showingOrders ? (
               filteredOrders.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
@@ -939,7 +966,7 @@ export default function FrenteDeCaixaPage() {
               )
             ) : filteredCatalog.length > 0 ? (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-                {filteredCatalog.map((p, i) => (
+                {visibleCatalog.map((p, i) => (
                   <ProductCard
                     key={p.id}
                     product={p}
@@ -952,6 +979,11 @@ export default function FrenteDeCaixaPage() {
                     }}
                   />
                 ))}
+                {visibleCatalog.length < filteredCatalog.length && (
+                  <div className="col-span-full py-2 text-center text-[11px] text-(--color-text-secondary)">
+                    Mostrando {visibleCatalog.length} de {filteredCatalog.length} produtos
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center gap-2 py-20 text-center">

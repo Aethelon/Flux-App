@@ -114,6 +114,8 @@ interface HistoryStore {
   loadHistorySearch: () => Promise<void>
 }
 
+let historySearchLoadPromise: Promise<void> | null = null
+
 export const useHistoryStore = create<HistoryStore>((set) => ({
   history: [],
   searchRecords: [],
@@ -137,8 +139,10 @@ export const useHistoryStore = create<HistoryStore>((set) => ({
       kpis,
     })
   },
-  loadHistorySearch: async () => {
-    const page = await api.get("history/sales", {
+  loadHistorySearch: () => {
+    if (historySearchLoadPromise) return historySearchLoadPromise
+
+    historySearchLoadPromise = api.get("history/sales", {
       searchParams: { limit: 100 },
     }).json<{ data: Array<{
       id: string
@@ -146,15 +150,20 @@ export const useHistoryStore = create<HistoryStore>((set) => ({
       customer: { name: string } | null
       completedAt: string
       itemNames: string[]
-    }> }>()
-    set({
-      searchRecords: page.data.map((record) => ({
-        id: record.id,
-        businessNumber: record.businessNumber,
-        customerName: record.customer?.name ?? "Consumidor não identificado",
-        completedAt: record.completedAt,
-        itemNames: record.itemNames,
-      })),
+    }> }>().then((page) => {
+      set({
+        searchRecords: page.data.map((record) => ({
+          id: record.id,
+          businessNumber: record.businessNumber,
+          customerName: record.customer?.name ?? "Consumidor não identificado",
+          completedAt: record.completedAt,
+          itemNames: record.itemNames,
+        })),
+      })
+    }).finally(() => {
+      historySearchLoadPromise = null
     })
+
+    return historySearchLoadPromise
   },
 }))

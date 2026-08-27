@@ -42,11 +42,22 @@ interface ClientsStore {
   removeClient: (id: string) => Promise<void>
 }
 
+let clientsLoadPromise: Promise<void> | null = null
+
 export const useClientsStore = create<ClientsStore>((set, get) => ({
   clients: [],
-  loadClients: async () => {
-    const response = await fetchAllPages<ApiCustomer>("customers")
-    set({ clients: response.map(client) })
+  loadClients: () => {
+    if (clientsLoadPromise) return clientsLoadPromise
+
+    clientsLoadPromise = fetchAllPages<ApiCustomer>("customers")
+      .then((response) => {
+        set({ clients: response.map(client) })
+      })
+      .finally(() => {
+        clientsLoadPromise = null
+      })
+
+    return clientsLoadPromise
   },
   addClient: async (input) => {
     const created = client(await api.post("customers", {

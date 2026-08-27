@@ -43,6 +43,11 @@ export interface DashboardData {
     activeProductCount: number
     soldOutCount: number
     lowStockCount: number
+    alerts: Array<{
+      productId: string
+      name: string
+      status: "sold_out" | "low_stock"
+    }>
     inventoryValueCents: number | null
     unitTurnover: number | null
     coverageDays: number | null
@@ -149,6 +154,8 @@ interface AnalyticsStore {
   reviewInsight: (id: string, decision: "accepted" | "rejected") => Promise<void>
 }
 
+const dashboardLoadPromises = new Map<string, Promise<void>>()
+
 export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
   dashboard: null,
   trendDashboard: null,
@@ -157,11 +164,15 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
   insights: [],
   insightAvailability: "available",
   insightRunStatus: null,
-  loadDashboard: async (query, includeInsights = true) => {
-    const trendTo = query?.to ? new Date(query.to) : new Date()
-    const trendFrom = new Date(trendTo.getFullYear(), trendTo.getMonth() - 5, 1)
-    const [dashboard, trendDashboard, insights] = await Promise.all([
-      api.get("dashboard", {
+  loadDashboard: (query, includeInsights = true) => {
+    const loadKey = JSON.stringify({ query: query ?? null, includeInsights })
+    const currentLoad = dashboardLoadPromises.get(loadKey)
+    if (currentLoad) return currentLoad
+
+    const load = (async () => {
+      const trendTo = query?.to ? new Date(query.to) : new Date()
+      const trendFrom = new Date(trendTo.getFullYear(), trendTo.getMonth() - 5, 1)
+      const dashboard = await api.get("dashboard", {
         searchParams: {
           bucket: query?.bucket ?? "month",
           topBy: query?.topBy ?? "net_revenue",
@@ -169,41 +180,50 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
           ...(query?.from ? { from: query.from } : {}),
           ...(query?.to ? { to: query.to } : {}),
         },
-      }).json<DashboardData>(),
-      api.get("dashboard", {
-        searchParams: {
-          bucket: "month",
-          topBy: query?.topBy ?? "net_revenue",
-          topLimit: query?.topLimit ?? 5,
-          from: trendFrom.toISOString(),
-          to: trendTo.toISOString(),
-        },
-      }).json<DashboardData>(),
-      includeInsights
-        ? api.get("intelligence/insights", {
-            searchParams: { limit: 5, state: "accepted" },
-          }).json<{
-            data: AiInsight[]
-            availability: "available" | "unavailable"
-            latestRunStatus: AiRunStatus | null
-          }>().catch(() => ({
-            data: [] as AiInsight[],
-            availability: "unavailable" as const,
-            latestRunStatus: null,
-          }))
-        : Promise.resolve({
-            data: [] as AiInsight[],
-            availability: "unavailable" as const,
-            latestRunStatus: null,
-          }),
-    ])
-    set({
-      dashboard,
-      trendDashboard,
-      insights: insights.data,
-      insightAvailability: insights.availability,
-      insightRunStatus: insights.latestRunStatus,
+      }).json<DashboardData>()
+      set({ dashboard })
+
+      const [trendDashboard, insights] = await Promise.all([
+        api.get("dashboard", {
+          searchParams: {
+            bucket: "month",
+            topBy: query?.topBy ?? "net_revenue",
+            topLimit: query?.topLimit ?? 5,
+            from: trendFrom.toISOString(),
+            to: trendTo.toISOString(),
+          },
+        }).json<DashboardData>(),
+        includeInsights
+          ? api.get("intelligence/insights", {
+              searchParams: { limit: 5, state: "accepted" },
+            }).json<{
+              data: AiInsight[]
+              availability: "available" | "unavailable"
+              latestRunStatus: AiRunStatus | null
+            }>().catch(() => ({
+              data: [] as AiInsight[],
+              availability: "unavailable" as const,
+              latestRunStatus: null,
+            }))
+          : Promise.resolve({
+              data: [] as AiInsight[],
+              availability: "unavailable" as const,
+              latestRunStatus: null,
+            }),
+      ])
+      set({
+        trendDashboard,
+        insights: insights.data,
+        insightAvailability: insights.availability,
+        insightRunStatus: insights.latestRunStatus,
+      })
+    })()
+
+    const trackedLoad = load.finally(() => {
+      dashboardLoadPromises.delete(loadKey)
     })
+    dashboardLoadPromises.set(loadKey, trackedLoad)
+    return trackedLoad
   },
   loadIntelligence: async () => {
     const [forecasts, recommendations, insights] = await Promise.all([

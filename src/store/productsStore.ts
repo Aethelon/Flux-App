@@ -64,14 +64,23 @@ interface ProductsStore {
   loadProducts: () => Promise<void>
 }
 
+let productsLoadPromise: Promise<void> | null = null
+
 export const useProductsStore = create<ProductsStore>((set) => ({
   products: [],
-  loadProducts: async () => {
-    const [catalog, inventory] = await Promise.all([
-      fetchAllPages<ApiProduct>("products"),
-      fetchAllPages<ApiBalance>("inventory/balances"),
-    ])
-    const balances = new Map(inventory.map((item) => [item.product.id, item]))
-    set({ products: catalog.map((item) => product(item, balances.get(item.id))) })
+  loadProducts: () => {
+    if (productsLoadPromise) return productsLoadPromise
+
+    productsLoadPromise = Promise.all([
+      fetchAllPages<ApiProduct>("products", {}, 500),
+      fetchAllPages<ApiBalance>("inventory/balances", {}, 500),
+    ]).then(([catalog, inventory]) => {
+      const balances = new Map(inventory.map((item) => [item.product.id, item]))
+      set({ products: catalog.map((item) => product(item, balances.get(item.id))) })
+    }).finally(() => {
+      productsLoadPromise = null
+    })
+
+    return productsLoadPromise
   },
 }))
