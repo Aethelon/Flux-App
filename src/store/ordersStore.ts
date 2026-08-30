@@ -11,6 +11,7 @@ interface ApiColumn {
   colorToken: string
   displayPosition: number
   protected: boolean
+  readyForSale: boolean
   version: number
 }
 
@@ -50,6 +51,7 @@ function column(value: ApiColumn): KanbanColumn {
     semanticType: value.semanticType,
     displayPosition: value.displayPosition,
     protected: value.protected,
+    readyForSale: value.readyForSale,
     version: value.version,
   }
 }
@@ -67,6 +69,7 @@ function order(value: ApiOrder): Order {
     priority: priority(value.priority),
     dueAt: value.dueAt?.slice(0, 10) ?? "",
     status: value.status,
+    readyForSale: value.column.readyForSale,
     finalSaleId: value.finalSaleId,
     version: value.version,
     ...(value.completedAt ? { completedAt: value.completedAt } : {}),

@@ -1,8 +1,19 @@
-import ky from "ky"
+import ky, { type RetryOptions } from "ky"
+
+export const idempotentGenerationRetry: RetryOptions = {
+  limit: 1,
+  methods: ["post"],
+  statusCodes: [408, 500, 502, 504],
+  retryOnTimeout: true,
+}
 
 export const api = ky.create({
   prefixUrl: "/api/backend",
-  retry: 0,
+  retry: {
+    limit: 1,
+    methods: ["get"],
+    statusCodes: [408, 429, 500, 502, 503, 504],
+  },
   timeout: 30_000,
   headers: {
     accept: "application/json",

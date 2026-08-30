@@ -1,7 +1,7 @@
 "use client"
 
 import { create } from "zustand"
-import { api, idempotencyHeaders } from "@/lib/api"
+import { api, idempotencyHeaders, idempotentGenerationRetry } from "@/lib/api"
 
 export interface DashboardData {
   dateRange: {
@@ -79,8 +79,12 @@ export interface ForecastRun {
   id: string
   targetType: "product_demand" | "monthly_revenue"
   product: { id: string; name: string } | null
-  method: string
+  method: "ols_trend" | "seasonal_ols" | "damped_trend" | "naive_last_value" | "unavailable"
   calculationVersion: string
+  trainingFrom: string
+  trainingTo: string
+  bucketCount: number
+  eligibleBucketCount: number
   confidenceScore: number | null
   confidenceLabel: "low" | "medium" | "high" | "unavailable"
   status: "completed" | "insufficient_data" | "poor_data_quality" | "baseline_not_beaten"
@@ -93,6 +97,13 @@ export interface ForecastRun {
     lowerLimit: number | null
     upperLimit: number | null
     seasonalFactor: number | null
+    calendarEvents: Array<{
+      name: string
+      kind: "season" | "retail" | "holiday" | "custom"
+      source: string
+      startsOn: string
+      endsOn: string
+    }>
   }>
 }
 
@@ -119,6 +130,7 @@ export interface Recommendation {
 export interface AiInsight {
   id: string
   runId: string
+  reportPeriod: "monthly" | "quarterly"
   type: "summary" | "strength" | "risk" | "recommendation"
   text: string
   severity: "low" | "medium" | "high" | null
@@ -145,7 +157,7 @@ interface AnalyticsStore {
   insights: AiInsight[]
   insightAvailability: "available" | "unavailable"
   insightRunStatus: AiRunStatus | null
-  loadDashboard: (query?: DashboardQuery, includeInsights?: boolean) => Promise<void>
+  loadDashboard: (query?: DashboardQuery, includeRecommendations?: boolean) => Promise<void>
   loadIntelligence: () => Promise<void>
   runForecasts: () => Promise<void>
   runRecommendations: () => Promise<void>
@@ -164,8 +176,8 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
   insights: [],
   insightAvailability: "available",
   insightRunStatus: null,
-  loadDashboard: (query, includeInsights = true) => {
-    const loadKey = JSON.stringify({ query: query ?? null, includeInsights })
+  loadDashboard: (query, includeRecommendations = true) => {
+    const loadKey = JSON.stringify({ query: query ?? null, includeRecommendations })
     const currentLoad = dashboardLoadPromises.get(loadKey)
     if (currentLoad) return currentLoad
 
@@ -183,7 +195,7 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
       }).json<DashboardData>()
       set({ dashboard })
 
-      const [trendDashboard, insights] = await Promise.all([
+      const [trendDashboard, recommendations] = await Promise.all([
         api.get("dashboard", {
           searchParams: {
             bucket: "month",
@@ -193,29 +205,21 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
             to: trendTo.toISOString(),
           },
         }).json<DashboardData>(),
-        includeInsights
-          ? api.get("intelligence/insights", {
-              searchParams: { limit: 5, state: "accepted" },
-            }).json<{
-              data: AiInsight[]
-              availability: "available" | "unavailable"
-              latestRunStatus: AiRunStatus | null
-            }>().catch(() => ({
-              data: [] as AiInsight[],
-              availability: "unavailable" as const,
-              latestRunStatus: null,
+        includeRecommendations
+          ? api.get("intelligence/recommendations", {
+              searchParams: {
+                limit: 5,
+                type: "replenishment",
+                state: "pending",
+              },
+            }).json<{ data: Recommendation[] }>().catch(() => ({
+              data: [] as Recommendation[],
             }))
-          : Promise.resolve({
-              data: [] as AiInsight[],
-              availability: "unavailable" as const,
-              latestRunStatus: null,
-            }),
+          : Promise.resolve({ data: [] as Recommendation[] }),
       ])
       set({
         trendDashboard,
-        insights: insights.data,
-        insightAvailability: insights.availability,
-        insightRunStatus: insights.latestRunStatus,
+        ...(includeRecommendations ? { recommendations: recommendations.data } : {}),
       })
     })()
 
@@ -241,10 +245,15 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
         latestRunStatus: AiRunStatus | null
       }>(),
     ])
-    const latestRunId = insights.data[0]?.runId
-    const reportInsights = latestRunId
-      ? insights.data.filter((item) => item.runId === latestRunId)
-      : []
+    const latestRunByPeriod = new Map<AiInsight["reportPeriod"], string>()
+    for (const insight of insights.data) {
+      if (!latestRunByPeriod.has(insight.reportPeriod)) {
+        latestRunByPeriod.set(insight.reportPeriod, insight.runId)
+      }
+    }
+    const reportInsights = insights.data.filter((item) => (
+      latestRunByPeriod.get(item.reportPeriod) === item.runId
+    ))
     const reportOrder: Record<AiInsight["type"], number> = {
       summary: 0,
       strength: 1,
@@ -255,7 +264,8 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
       forecasts: forecasts.data,
       recommendations: recommendations.data,
       insights: reportInsights.sort((left, right) =>
-        reportOrder[left.type] - reportOrder[right.type]
+        left.reportPeriod.localeCompare(right.reportPeriod)
+          || reportOrder[left.type] - reportOrder[right.type]
       ),
       insightAvailability: insights.availability,
       insightRunStatus: insights.latestRunStatus,
@@ -264,20 +274,26 @@ export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
   runForecasts: async () => {
     await api.post("intelligence/forecasts/runs", {
       headers: idempotencyHeaders(),
-      json: { includeRevenue: true },
+      json: { includeRevenue: true, includeProducts: true },
+      retry: idempotentGenerationRetry,
     })
     await get().loadIntelligence()
   },
   runRecommendations: async () => {
     await api.post("intelligence/recommendations/runs", {
       headers: idempotencyHeaders(),
+      retry: idempotentGenerationRetry,
     })
     await get().loadIntelligence()
   },
   runInsights: async () => {
-    await api.post("intelligence/insights/runs", {
-      headers: idempotencyHeaders(),
-    })
+    for (const period of ["monthly", "quarterly"] as const) {
+      await api.post("intelligence/insights/runs", {
+        headers: idempotencyHeaders(),
+        json: { period },
+        retry: idempotentGenerationRetry,
+      })
+    }
     await get().loadIntelligence()
   },
   reviewRecommendation: async (id, decision) => {

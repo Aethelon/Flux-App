@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react"
 import { useThemeTransition } from "@/lib/useThemeTransition"
-import { Plus, Pencil, Trash2, TriangleAlert, Check } from "lucide-react"
+import { Plus, Pencil, Trash2, TriangleAlert, Check, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
+import { api, idempotencyHeaders } from "@/lib/api"
 import {
   Select,
   SelectTrigger,
@@ -643,6 +644,7 @@ function JobRolesPanel() {
 
 function PreferencesPanel() {
   const user = useUserStore((s) => s.user)
+  const isAdmin = user?.role === "admin"
 
   return (
     <div className="flex flex-col gap-6">
@@ -681,7 +683,88 @@ function PreferencesPanel() {
         </p>
       </div>
 
+      {isAdmin && <AiPreferencesCard />}
       <GeneralPreferencesCard />
+    </div>
+  )
+}
+
+interface AiSettings {
+  enabled: boolean
+  provider: "disabled" | "gemini" | "anthropic"
+  providerConfigured: boolean
+}
+
+function AiPreferencesCard() {
+  const [settings, setSettings] = useState<AiSettings | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void api.get("intelligence/settings").json<AiSettings>()
+      .then((value) => {
+        if (active) setSettings(value)
+      })
+      .catch(() => toast.error("Não foi possível carregar a configuração de IA."))
+    return () => {
+      active = false
+    }
+  }, [])
+
+  async function changeEnabled(enabled: boolean) {
+    if (!settings || saving) return
+    setSaving(true)
+    try {
+      const updated = await api.patch("intelligence/settings", {
+        headers: idempotencyHeaders(),
+        json: { enabled },
+      }).json<AiSettings>()
+      setSettings(updated)
+      toast.success(enabled
+        ? "Relatórios de IA habilitados."
+        : "Relatórios de IA desabilitados.")
+    } catch {
+      toast.error("Não foi possível alterar a configuração de IA.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const providerLabel = settings?.provider === "gemini"
+    ? "Gemini"
+    : settings?.provider === "anthropic"
+      ? "Anthropic"
+      : "Não configurado"
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-(--color-border) bg-(--color-surface)">
+      <div className="flex items-center gap-2 px-5 py-4 bg-(--color-surface-raised) border-b border-(--color-border)">
+        <Sparkles size={17} className="text-(--color-accent)" />
+        <h2 className="text-[18px] font-medium text-(--color-text-primary) font-(family-name:--font-ui)">
+          Inteligência Artificial
+        </h2>
+      </div>
+      <div className="flex items-center justify-between gap-6 px-5 py-4">
+        <div className="flex flex-col">
+          <span className="text-[14px] text-(--color-text-primary) font-(family-name:--font-data)">
+            Relatórios de IA
+          </span>
+          <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
+            Permite gerar análises explicativas na tela de Inteligência. Provedor: {providerLabel}.
+          </span>
+          {settings && !settings.providerConfigured && (
+            <span className="mt-1 text-[12px] text-(--color-warning)">
+              Configure o provedor e a chave no servidor antes de habilitar este recurso.
+            </span>
+          )}
+        </div>
+        <Switch
+          aria-label="Habilitar relatórios de inteligência artificial"
+          checked={settings?.enabled ?? false}
+          disabled={!settings || saving || (!settings.providerConfigured && !settings.enabled)}
+          onCheckedChange={(enabled) => void changeEnabled(enabled)}
+        />
+      </div>
     </div>
   )
 }

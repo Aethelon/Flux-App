@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import Link from "next/link"
-import { ArrowRight, Sparkles, TrendingUp, TriangleAlert } from "lucide-react"
+import { ArrowRight, PackagePlus, TrendingUp, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { MiniLine } from "@/components/shared/MiniLine"
@@ -10,7 +10,7 @@ import { CaixaResumoCard } from "@/components/caixa/CaixaResumoCard"
 import { formatCurrency } from "@/lib/formatters"
 import { hasPermission } from "@/lib/accessControl"
 import { cn } from "@/lib/utils"
-import { useAnalyticsStore } from "@/store/analyticsStore"
+import { type Recommendation, useAnalyticsStore } from "@/store/analyticsStore"
 import { useOrdersStore } from "@/store/ordersStore"
 import { useUserStore } from "@/store/userStore"
 
@@ -64,6 +64,23 @@ function monthLabel(bucketStart: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
+function replenishmentQuantity(recommendation: Recommendation): number | null {
+  if (
+    typeof recommendation.proposedValue !== "object"
+    || recommendation.proposedValue === null
+    || !("quantity" in recommendation.proposedValue)
+  ) return null
+  const quantity = recommendation.proposedValue.quantity
+  return typeof quantity === "number" ? quantity : null
+}
+
+const CONFIDENCE_LABEL: Record<Recommendation["confidenceLabel"], string> = {
+  unavailable: "Indisponível",
+  low: "Baixa",
+  medium: "Média",
+  high: "Alta",
+}
+
 export default function DashboardPage() {
   const user = useUserStore((state) => state.user)
   const canViewIntelligence = hasPermission(user?.role, user?.permissions, "intelligence.view")
@@ -72,7 +89,7 @@ export default function DashboardPage() {
   const canViewOrders = hasPermission(user?.role, user?.permissions, "orders.view")
   const dashboard = useAnalyticsStore((state) => state.dashboard)
   const trendDashboard = useAnalyticsStore((state) => state.trendDashboard)
-  const insights = useAnalyticsStore((state) => state.insights)
+  const recommendations = useAnalyticsStore((state) => state.recommendations)
   const loadDashboard = useAnalyticsStore((state) => state.loadDashboard)
   const columns = useOrdersStore((state) => state.columns)
   const orders = useOrdersStore((state) => state.orders)
@@ -120,6 +137,9 @@ export default function DashboardPage() {
     0,
     (dashboard?.serviceOrders.openCount ?? 0) - pendingCount
   )
+  const replenishmentRecommendations = recommendations.filter((recommendation) => (
+    recommendation.type === "replenishment" && recommendation.state === "pending"
+  ))
 
   return (
     <div>
@@ -202,7 +222,11 @@ export default function DashboardPage() {
       )}
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className={cn(CARD, "flex flex-col", canViewIntelligence ? "lg:col-span-2" : "lg:col-span-3")}>
+        <div className={cn(
+          CARD,
+          "flex h-[32rem] max-h-[70vh] min-h-80 flex-col overflow-hidden",
+          canViewIntelligence ? "lg:col-span-2" : "lg:col-span-3"
+        )}>
           <div className="mb-6 flex items-center justify-between">
             <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Fluxo de Produção</h2>
             {canViewOrders && (
@@ -211,14 +235,14 @@ export default function DashboardPage() {
               </Link>
             )}
           </div>
-          <div className="flex flex-1 gap-3 overflow-x-auto pb-2">
+          <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
             {columns.map((column) => {
               const cards = orders.filter((order) => order.columnId === column.id)
               const done = column.semanticType === "completed"
               return (
                 <div
                   key={column.id}
-                  className="flex min-w-56 flex-1 flex-col gap-3 rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3"
+                  className="flex min-h-0 min-w-56 flex-1 flex-col gap-3 rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-[11px] font-semibold uppercase tracking-[0.55px] text-(--color-text-secondary)">
@@ -228,14 +252,16 @@ export default function DashboardPage() {
                       {cards.length}
                     </span>
                   </div>
-                  {cards.map((order) => (
-                    <div key={order.id} className={cn("rounded-md border border-(--color-border) bg-border/40 p-2.5", done && "opacity-60")}>
-                      <p className={cn("truncate text-[13px] font-semibold text-(--color-text-primary)", done && "line-through")}>
-                        {order.title}
-                      </p>
-                      <p className="mt-0.5 truncate text-[11px] text-(--color-text-secondary)">{order.client}</p>
-                    </div>
-                  ))}
+                  <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain pr-1">
+                    {cards.map((order) => (
+                      <div key={order.id} className={cn("shrink-0 rounded-md border border-(--color-border) bg-border/40 p-2.5", done && "opacity-60")}>
+                        <p className={cn("truncate text-[13px] font-semibold text-(--color-text-primary)", done && "line-through")}>
+                          {order.title}
+                        </p>
+                        <p className="mt-0.5 truncate text-[11px] text-(--color-text-secondary)">{order.client}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )
             })}
@@ -243,25 +269,43 @@ export default function DashboardPage() {
         </div>
 
         {canViewIntelligence && (
-          <div className={cn(CARD, "flex flex-col")}>
+          <div className={cn(
+            CARD,
+            "flex h-[32rem] max-h-[70vh] min-h-80 flex-col overflow-hidden"
+          )}>
             <div className="mb-1 flex items-center gap-2">
-              <Sparkles size={18} className="text-(--color-accent)" />
-              <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Insights de IA</h2>
+              <PackagePlus size={18} className="text-(--color-accent)" />
+              <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Sugestões de Reposição</h2>
             </div>
             <p className="mb-4 text-[12px] text-(--color-text-secondary)">
-              Explicações aprovadas com base nas métricas persistidas
+              Itens com necessidade calculada de abastecimento
             </p>
-            <div className="flex flex-1 flex-col gap-2.5">
-              {insights.length === 0 ? (
-                <p className="text-[12px] text-(--color-text-secondary)">Nenhum insight aprovado.</p>
-              ) : insights.map((insight) => (
-                <div key={insight.id} className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3">
-                  <p className="text-[13px] text-(--color-text-primary)">{insight.text}</p>
-                  <span className="mt-2 block text-[10px] uppercase text-(--color-text-secondary)">
-                    {insight.provider} · {insight.modelId}
-                  </span>
-                </div>
-              ))}
+            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-1">
+              {replenishmentRecommendations.length === 0 ? (
+                <p className="text-[12px] text-(--color-text-secondary)">Nenhuma sugestão de reposição pendente.</p>
+              ) : replenishmentRecommendations.map((recommendation) => {
+                const quantity = replenishmentQuantity(recommendation)
+                return (
+                  <div key={recommendation.id} className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-[13px] font-medium text-(--color-text-primary)">
+                        {recommendation.product.name}
+                      </p>
+                      <span className="shrink-0 rounded-full bg-(--color-warning)/15 px-2 py-0.5 text-[9px] font-semibold uppercase text-(--color-warning)">
+                        {quantity === null ? "Revisar" : "Repor"}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-(--color-text-secondary)">
+                      {quantity === null
+                        ? "Revisar a reposição; a quantidade depende do histórico diário de estoque."
+                        : `Repor ${quantity} unidades.`}
+                    </p>
+                    <span className="mt-2 block text-[10px] text-(--color-text-secondary)">
+                      Confiança: {CONFIDENCE_LABEL[recommendation.confidenceLabel]}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
             <Link
               href="/inteligencia"

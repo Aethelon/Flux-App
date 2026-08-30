@@ -7,6 +7,7 @@ export interface KanbanColumn {
   semanticType: "open" | "completed" | "cancelled"
   displayPosition: number
   protected: boolean
+  readyForSale: boolean
   version: number
 }
 
@@ -22,7 +23,8 @@ export interface Order {
   priority: OrderPriority
   dueAt: string
   status: "open" | "completed" | "cancelled"
+  readyForSale: boolean
   finalSaleId: string | null
   version: number
-  completedAt?: string // data em que entrou em "Concluído" (ISO)
+  completedAt?: string // data em que entrou em "Entregue" (ISO)
 }

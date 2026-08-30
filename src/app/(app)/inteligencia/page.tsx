@@ -22,6 +22,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { toast } from "sonner"
+import { HTTPError } from "ky"
 import { RevenueForecastChart, type ForecastPoint } from "@/components/analytics/RevenueForecastChart"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { MiniLine } from "@/components/shared/MiniLine"
@@ -80,6 +81,7 @@ const FORECAST_STATUS: Record<ForecastRun["status"], string> = {
 const FORECAST_METHOD: Record<ForecastRun["method"], string> = {
   ols_trend: "Tendência linear",
   seasonal_ols: "Tendência com sazonalidade",
+  damped_trend: "Tendência amortecida",
   naive_last_value: "Último valor observado",
   unavailable: "Indisponível",
 }
@@ -196,7 +198,9 @@ function recommendationValue(recommendation: Recommendation) {
   const value = objectValue(recommendation.proposedValue)
   if (recommendation.type === "replenishment") {
     const quantity = typeof value.quantity === "number" ? value.quantity : null
-    return quantity === null ? "Quantidade pendente de cálculo." : `Repor ${quantity} unidades.`
+    return quantity === null
+      ? "Revisar a reposição; a quantidade depende de histórico diário de estoque."
+      : `Repor ${quantity} unidades.`
   }
   if (recommendation.type === "promotion") {
     const rate = typeof value.discountRate === "number" ? value.discountRate : null
@@ -250,6 +254,94 @@ function recommendationEvidence(recommendation: Recommendation) {
       excessUnits === null ? null : `${excessUnits.toFixed(0)} un. acima do estoque-alvo`,
     ].filter(Boolean).join(" · "),
   }
+}
+
+type SeasonalForecastPoint = ForecastRun["points"][number]
+
+interface SeasonalSuggestion {
+  id: string
+  period: string
+  events: string[]
+  action: string
+  reason: string
+  products: string | null
+}
+
+function seasonalSuggestions(
+  points: SeasonalForecastPoint[],
+  salesProducts: DashboardData["topProducts"]["data"],
+  reviewProducts: Recommendation[],
+): SeasonalSuggestion[] {
+  const today = new Date().toISOString().slice(0, 10)
+  const leaders = salesProducts.slice(0, 3).map((product) => product.name)
+  const review = reviewProducts.slice(0, 3).map((item) => item.product.name)
+  const matchingProducts = (pattern: RegExp) => salesProducts
+    .filter((product) => pattern.test(product.name))
+    .slice(0, 3)
+    .map((product) => product.name)
+
+  return points.flatMap((point) => {
+    const events = point.calendarEvents.filter((event) => event.endsOn >= today)
+    if (events.length === 0) return []
+    const names = events.map((event) => event.name)
+    let action = "Planejar a exposição e o abastecimento para a mudança do período."
+    let reason = "A mudança de período pode alterar o mix procurado; acompanhe vendas e estoque por categoria antes de ampliar compras."
+    let products = leaders
+
+    if (names.includes("Black Friday")) {
+      action = "Preparar uma campanha de Black Friday com desconto limitado pela margem e quantidade máxima por item."
+      reason = "A data é adequada para acelerar itens de baixo giro, mas desconto sem limite pode elevar faturamento e reduzir o lucro. Priorize produtos já sinalizados para revisão."
+      products = review.length > 0 ? review : leaders
+    } else if (names.includes("Período de Natal")) {
+      action = "Montar kits de presente com os itens líderes e reservar estoque para reposição rápida durante dezembro."
+      reason = "O período de presentes permite aumentar o valor do pedido combinando produtos complementares; os líderes atuais são o ponto de partida mais seguro."
+      products = leaders
+    } else if (names.includes("Dia das Crianças")) {
+      const children = matchingProducts(/KIDS|INFANTIL|CRIANÇ|BEBÊ|BEBE/i)
+      action = children.length > 0
+        ? "Criar uma campanha curta de Dia das Crianças com os itens infantis que já têm saída."
+        : "Validar se existe mix infantil antes de investir em uma campanha de Dia das Crianças."
+      reason = children.length > 0
+        ? "Há produtos infantis entre os itens vendidos; uma campanha segmentada reduz o risco de divulgar itens sem aderência."
+        : "O mix vendido não mostra produtos infantis entre os destaques, então usar apenas a data do calendário seria uma sugestão sem evidência do negócio."
+      products = children
+    } else if (names.includes("Volta às aulas")) {
+      const school = matchingProducts(/ESCOLAR|MOCHILA|LANCHEIRA|INFANTIL|KIDS/i)
+      action = school.length > 0
+        ? "Antecipar a exposição dos itens ligados à volta às aulas e conferir sua cobertura de estoque."
+        : "Só criar campanha de volta às aulas se o cadastro tiver produtos realmente relacionados ao período."
+      reason = school.length > 0
+        ? "Os itens relacionados já aparecem nas vendas; planejar antes do início do período evita ruptura na janela de procura."
+        : "Não foram encontrados produtos escolares entre os itens vendidos, portanto a data deve ser tratada apenas como oportunidade a validar."
+      products = school
+    } else if (names.includes("Réveillon")) {
+      action = "Planejar kits e comunicação de fim de ano sem misturar o estoque reservado para o Natal."
+      reason = "Natal e Réveillon dividem dezembro, mas podem ter propostas diferentes; separar estoque e campanha facilita medir qual período gerou cada venda."
+      products = leaders
+    } else if (names.includes("Verão")) {
+      const summer = matchingProducts(/BANHO|TOALHA|PRAIA|PISCINA|LEVE/i)
+      action = "Revisar o mix de verão e dar mais espaço aos itens compatíveis que já demonstram saída."
+      reason = "A estação muda a ocasião de uso dos produtos. Usar vendas existentes evita aumentar estoque apenas por uma associação genérica com o verão."
+      products = summer.length > 0 ? summer : leaders
+    } else if (names.includes("Primavera")) {
+      action = "Comparar o giro por categoria na transição para a primavera e ajustar a vitrine antes de novas compras."
+      reason = "A troca de estação é um bom ponto de revisão do mix, mas ainda não existe um ciclo anual completo para atribuir um percentual automático de aumento ou queda."
+      products = leaders
+    } else if (names.includes("Inverno")) {
+      action = "Concentrar a exposição nos itens de inverno que já vendem e evitar ampliar estoque perto do fim da estação."
+      reason = "A janela restante do inverno é curta; usar os líderes atuais reduz o risco de terminar a estação com mercadoria parada."
+      products = leaders
+    }
+
+    return [{
+      id: point.id,
+      period: monthLabel(point.bucketStart),
+      events: names,
+      action,
+      reason,
+      products: products.length > 0 ? products.join(", ") : null,
+    }]
+  })
 }
 
 function KpiLineCard({
@@ -658,7 +750,7 @@ export default function InteligenciaPage() {
   async function refresh() {
     setRunning("refresh")
     try {
-      await loadDashboard(currentRange(period))
+      await loadDashboard(currentRange(period), false)
       await loadIntelligence()
     } catch {
       toast.error("Não foi possível carregar os dados de inteligência.")
@@ -669,7 +761,7 @@ export default function InteligenciaPage() {
 
   useEffect(() => {
     void Promise.all([
-      loadDashboard(currentRange(period)),
+      loadDashboard(currentRange(period), false),
       loadIntelligence(),
       loadOrders(),
     ])
@@ -698,8 +790,13 @@ export default function InteligenciaPage() {
     try {
       await action()
       toast.success(successMessage)
-    } catch {
-      toast.error("Não foi possível iniciar o processamento.")
+    } catch (error) {
+      const body = error instanceof HTTPError
+        ? await error.response.json<{ code?: string }>().catch(() => null)
+        : null
+      toast.error(body?.code === "AI_INPUT_UNAVAILABLE"
+        ? "Ainda não há histórico suficiente para gerar o relatório."
+        : "Não foi possível iniciar o processamento.")
     } finally {
       setRunning(null)
     }
@@ -710,7 +807,7 @@ export default function InteligenciaPage() {
       toast.error("O provedor de IA ainda não está configurado.")
       return
     }
-    await execute("insight", runInsights, "A geração do relatório foi solicitada.")
+    await execute("insight", runInsights, "A geração dos relatórios mensal e trimestral foi solicitada.")
     setReportOpen(true)
   }
 
@@ -761,14 +858,38 @@ export default function InteligenciaPage() {
 
   const forecastChart = useMemo<ForecastPoint[]>(() => {
     const points = new Map<string, ForecastPoint>()
-    const realizedHistory = (trendDashboard?.revenueSeries ?? dashboard?.revenueSeries ?? [])
-      .slice(-3)
+    const trainingTo = revenueForecast?.trainingTo.slice(0, 7)
+    const revenueHistory = trendDashboard?.revenueSeries ?? dashboard?.revenueSeries ?? []
+    const realizedHistory = revenueHistory
+      .filter((point) => !trainingTo || point.bucketStart.slice(0, 7) < trainingTo)
+      .slice(-(revenueForecast?.bucketCount ?? 6))
     for (const point of realizedHistory) {
       points.set(point.bucketStart.slice(0, 7), {
         label: monthLabel(point.bucketStart),
         realized: point.netRevenueCents / 100,
         projected: null,
       })
+    }
+    const lastRealizedKey = [...points.keys()].sort().at(-1)
+    if (lastRealizedKey) {
+      const lastRealized = points.get(lastRealizedKey)
+      if (lastRealized?.realized !== null && lastRealized?.realized !== undefined) {
+        points.set(lastRealizedKey, {
+          ...lastRealized,
+          projected: lastRealized.realized,
+        })
+      }
+    }
+    if (trainingTo) {
+      const partial = revenueHistory.find((point) => point.bucketStart.slice(0, 7) === trainingTo)
+      if (partial) {
+        points.set(trainingTo, {
+          label: monthLabel(partial.bucketStart),
+          realized: partial.netRevenueCents / 100,
+          projected: null,
+          realizedPartial: true,
+        })
+      }
     }
     for (const point of revenueForecast?.points ?? []) {
       const key = point.bucketStart.slice(0, 7)
@@ -777,6 +898,7 @@ export default function InteligenciaPage() {
         label: monthLabel(point.bucketStart),
         realized: current?.realized ?? null,
         projected: point.operationalValue / 100,
+        realizedPartial: current?.realizedPartial,
       })
     }
     return [...points.entries()]
@@ -785,10 +907,19 @@ export default function InteligenciaPage() {
   }, [dashboard?.revenueSeries, revenueForecast, trendDashboard?.revenueSeries])
 
   const visibleInsights = insights.filter((insight) => insight.state !== "rejected")
-  const insightGroups = INSIGHT_TYPES.map((type) => ({
-    type,
-    items: visibleInsights.filter((insight) => insight.type === type),
-  })).filter((group) => group.items.length > 0)
+  const insightReports = PERIOD_OPTIONS.map((option) => {
+    const reportInsights = visibleInsights.filter(
+      (insight) => insight.reportPeriod === option.value
+    )
+    return {
+      ...option,
+      insights: reportInsights,
+      groups: INSIGHT_TYPES.map((type) => ({
+        type,
+        items: reportInsights.filter((insight) => insight.type === type),
+      })).filter((group) => group.items.length > 0),
+    }
+  })
   const insightProcessing = insightRunStatus === "pending"
     || insightRunStatus === "processing"
   const reportVisible = reportOpen || insightProcessing
@@ -799,7 +930,7 @@ export default function InteligenciaPage() {
     (recommendation) => recommendation.type === "replenishment"
   )
   const seasonalPoints = revenueForecast?.points.filter(
-    (point) => point.seasonalFactor !== null
+    (point) => point.seasonalFactor !== null || point.calendarEvents.length > 0
   ) ?? []
   const criticalStock = (dashboard?.inventory.lowStockCount ?? 0)
     + (dashboard?.inventory.soldOutCount ?? 0)
@@ -813,6 +944,11 @@ export default function InteligenciaPage() {
   const lowestSales = [...rankedItems].sort((left, right) => (
     left.netRevenueCents - right.netRevenueCents || left.unitsSold - right.unitsSold
   )).slice(0, SALES_RANKING_LIMIT)
+  const seasonalitySuggestions = seasonalSuggestions(
+    seasonalPoints,
+    (dashboard?.topProducts.data ?? []).filter((item) => item.type !== "service"),
+    promotionRecommendations,
+  )
   const unitTurnover = dashboard?.inventory.unitTurnover ?? null
   const coverageDays = dashboard?.inventory.coverageDays ?? null
   const stockoutRate = dashboard?.inventory.stockoutRate ?? null
@@ -870,7 +1006,6 @@ export default function InteligenciaPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Segmented value={period} onChange={setPeriod} />
             {!reportVisible ? (
               <Button
                 className="gap-2"
@@ -884,10 +1019,10 @@ export default function InteligenciaPage() {
                   ? <Loader2 size={16} className="animate-spin" />
                   : <Sparkles size={16} />}
                 {insightProcessing
-                  ? "Processando relatório"
+                    ? "Processando relatórios"
                   : visibleInsights.length > 0
-                    ? "Ver Relatório de IA"
-                    : "Gerar Relatório de IA"}
+                    ? "Ver Relatórios de IA"
+                    : "Gerar Relatórios de IA"}
               </Button>
             ) : (
               <>
@@ -897,7 +1032,7 @@ export default function InteligenciaPage() {
                   onClick={() => void generateReport()}
                 >
                   {running === "insight" ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                  Regenerar
+                  Regenerar ambos
                 </Button>
                 <button
                   type="button"
@@ -919,7 +1054,7 @@ export default function InteligenciaPage() {
                 {insightProcessing && <Loader2 size={15} className="animate-spin" />}
                 <p>
                   {insightProcessing
-                    ? "O relatório está sendo processado e aparecerá automaticamente."
+                    ? "Os relatórios mensal e trimestral estão sendo processados e aparecerão automaticamente."
                     : insightRunStatus === "rejected"
                       ? "A resposta da IA não passou pela validação de evidências. Gere um novo relatório."
                       : insightRunStatus === "failed"
@@ -930,35 +1065,65 @@ export default function InteligenciaPage() {
                 </p>
               </div>
             ) : (
-              <div className="flex max-w-4xl flex-col gap-5">
-                {insightGroups.map((group) => (
-                  <div key={group.type}>
-                    <div className="mb-1.5 flex items-center gap-3">
-                      <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--color-text-primary)">
-                        {group.type === "risk"
-                          ? <TriangleAlert size={14} className="text-(--color-warning)" />
-                          : group.type === "recommendation"
-                            ? <Lightbulb size={14} className="text-(--color-accent)" />
-                            : group.type === "summary"
-                              ? <FileText size={14} className="text-(--color-accent)" />
-                              : <TrendingUp size={14} className="text-(--color-success)" />}
-                        {INSIGHT_LABEL[group.type]}
-                      </h3>
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {insightReports.map((report) => (
+                  <section
+                    key={report.value}
+                    className="rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-5"
+                  >
+                    <div className="mb-5 flex items-center justify-between gap-3 border-b border-(--color-border) pb-3">
+                      <div>
+                        <h3 className="text-[15px] font-semibold text-(--color-text-primary)">
+                          Relatório {report.label}
+                        </h3>
+                        <p className="mt-0.5 text-[11px] text-(--color-text-secondary)">
+                          {report.value === "monthly"
+                            ? "Desempenho recente e ações para os próximos 30 dias"
+                            : "Tendências do trimestre e decisões para o próximo ciclo"}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-(--color-accent)">
+                        {report.label}
+                      </span>
                     </div>
-                    {group.items.length > 1 ? (
-                      <ul className="list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed text-(--color-text-secondary)">
-                        {group.items.map((insight) => (
-                          <li key={insight.id}>{insight.text}</li>
+                    {report.groups.length > 0 ? (
+                      <div className="flex flex-col gap-5">
+                        {report.groups.map((group) => (
+                          <div key={`${report.value}-${group.type}`}>
+                            <div className="mb-1.5 flex items-center gap-3">
+                              <h4 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--color-text-primary)">
+                                {group.type === "risk"
+                                  ? <TriangleAlert size={14} className="text-(--color-warning)" />
+                                  : group.type === "recommendation"
+                                    ? <Lightbulb size={14} className="text-(--color-accent)" />
+                                    : group.type === "summary"
+                                      ? <FileText size={14} className="text-(--color-accent)" />
+                                      : <TrendingUp size={14} className="text-(--color-success)" />}
+                                {INSIGHT_LABEL[group.type]}
+                              </h4>
+                            </div>
+                            {group.items.length > 1 ? (
+                              <ul className="list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed text-(--color-text-secondary)">
+                                {group.items.map((insight) => (
+                                  <li key={insight.id}>{insight.text}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-[13px] leading-relaxed text-(--color-text-secondary)">
+                                {group.items[0]?.text}
+                              </p>
+                            )}
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     ) : (
-                      <p className="text-[13px] leading-relaxed text-(--color-text-secondary)">
-                        {group.items[0]?.text}
+                      <p className="text-[13px] text-(--color-text-secondary)">
+                        Este relatório ainda não foi gerado. Use “Regenerar ambos” para criar as duas análises.
                       </p>
                     )}
-                  </div>
+                  </section>
                 ))}
-                <p className="border-t border-(--color-border) pt-3 text-[11px] text-(--color-text-secondary)">
+                <p className="xl:col-span-2 border-t border-(--color-border) pt-3 text-[11px] text-(--color-text-secondary)">
                   Conteúdo explicativo. As recomendações precisam de revisão humana antes de qualquer ação.
                 </p>
               </div>
@@ -966,6 +1131,11 @@ export default function InteligenciaPage() {
           </div>
         )}
       </SurfaceCard>
+
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+        <span className="text-[12px] text-(--color-text-secondary)">Período dos indicadores</span>
+        <Segmented value={period} onChange={setPeriod} />
+      </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiLineCard
@@ -1030,8 +1200,8 @@ export default function InteligenciaPage() {
         </div>
       </section>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <SurfaceCard className="p-5 lg:col-span-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-stretch">
+        <SurfaceCard className="p-5 lg:col-span-2 lg:h-full">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div className="flex items-center gap-2">
               <TrendingUp size={18} className="text-(--color-accent)" />
@@ -1062,8 +1232,8 @@ export default function InteligenciaPage() {
           )}
         </SurfaceCard>
 
-        <div className="flex flex-col gap-4">
-          <SurfaceCard className="p-5">
+        <div className="flex flex-col gap-4 lg:h-full">
+          <SurfaceCard className="p-5 lg:h-full">
             <CardTitle>Qualidade da Previsão</CardTitle>
             <p className="mb-4 text-[12px] text-(--color-text-secondary)">
               Método e confiança do cálculo atual
@@ -1086,54 +1256,85 @@ export default function InteligenciaPage() {
                 <p className="text-[11px] text-(--color-text-secondary)">
                   {FORECAST_STATUS[revenueForecast.status]}
                 </p>
+                {(revenueForecast.method === "naive_last_value"
+                  || revenueForecast.method === "damped_trend") && (
+                  <p className="rounded-lg bg-(--color-warning)/10 px-3 py-2 text-[11px] leading-relaxed text-(--color-warning)">
+                    A tendência ainda tem poucos períodos de validação. A projeção reduz a inclinação observada para evitar extrapolar um crescimento que ainda não foi confirmado.
+                  </p>
+                )}
               </div>
             ) : (
               <p className="text-[12px] text-(--color-text-secondary)">Nenhum cálculo publicado.</p>
             )}
           </SurfaceCard>
 
-          <SurfaceCard className="p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <CalendarDays size={16} className="text-(--color-accent)" />
-              <CardTitle>Sazonalidades Identificadas</CardTitle>
-            </div>
-            <p className="mb-4 text-[12px] text-(--color-text-secondary)">
-              Fatores matemáticos aplicados à curva preditiva
-            </p>
-            <div className="space-y-2">
-              {seasonalPoints.map((point) => (
-                <div
-                  key={point.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-3 py-2"
-                >
-                  <span className="capitalize text-[12px] font-medium text-(--color-text-primary)">
-                    {monthLabel(point.bucketStart)}
-                  </span>
-                  <span className={cn(
-                    "text-[12px] font-semibold",
-                    (point.seasonalFactor ?? 1) >= 1 ? "text-(--color-success)" : "text-(--color-warning)"
-                  )}>
-                    {((point.seasonalFactor ?? 1) - 1) >= 0 ? "+" : ""}
-                    {(((point.seasonalFactor ?? 1) - 1) * 100).toFixed(1).replace(".", ",")}%
-                  </span>
-                </div>
-              ))}
-              {seasonalPoints.length === 0 && (
-                <p className="text-[12px] text-(--color-text-secondary)">
-                  O método atual não identificou fator sazonal publicável.
-                </p>
-              )}
-            </div>
-          </SurfaceCard>
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SurfaceCard className="p-5 lg:h-[520px]">
+          <div className="mb-4 flex items-start gap-2.5">
+            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-(--color-accent)">
+              <CalendarDays size={16} />
+            </span>
+            <div>
+              <CardTitle>Sugestões Sazonais</CardTitle>
+              <p className="text-[12px] text-(--color-text-secondary)">
+                Ações sugeridas a partir dos períodos do ano e das vendas do Flux
+              </p>
+            </div>
+          </div>
+          <div className="flex h-[440px] flex-col gap-2 overflow-y-auto pr-1">
+            {seasonalitySuggestions.map((suggestion) => (
+              <article
+                key={suggestion.id}
+                className="rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-3.5"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="capitalize text-[12px] font-semibold text-(--color-text-primary)">
+                    {suggestion.period}
+                  </span>
+                  {suggestion.events.map((event) => (
+                    <span
+                      key={`${suggestion.id}-${event}`}
+                      className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-(--color-accent)"
+                    >
+                      {event}
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-2 text-[13px] font-semibold leading-relaxed text-(--color-text-primary)">
+                  {suggestion.action}
+                </p>
+                <div className="mt-2 rounded-lg bg-(--color-surface) px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">
+                    Por que esta sugestão
+                  </p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-(--color-text-secondary)">
+                    {suggestion.reason}
+                  </p>
+                </div>
+                {suggestion.products && (
+                  <p className="mt-2 text-[11px] text-(--color-text-secondary)">
+                    <span className="font-semibold text-(--color-text-primary)">Produtos para avaliar:</span>{" "}
+                    {suggestion.products}
+                  </p>
+                )}
+              </article>
+            ))}
+            {seasonalitySuggestions.length === 0 && (
+              <p className="py-12 text-center text-[12px] text-(--color-text-secondary)">
+                Nenhuma oportunidade sazonal futura foi identificada no horizonte atual.
+              </p>
+            )}
+          </div>
+        </SurfaceCard>
+
+        <SurfaceCard className="p-5 lg:h-[520px]">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <CardTitle>Promoções Estruturadas</CardTitle>
-              <p className="text-[12px] text-(--color-text-secondary)">Sugestões matemáticas para itens de baixo giro</p>
+              <CardTitle>Sugestões de Reposição</CardTitle>
+              <p className="text-[12px] text-(--color-text-secondary)">Itens com necessidade calculada de abastecimento</p>
             </div>
             <Button
               size="sm"
@@ -1144,18 +1345,6 @@ export default function InteligenciaPage() {
             >
               {running === "recommendation" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             </Button>
-          </div>
-          <RecommendationList
-            items={promotionRecommendations}
-            emptyMessage="Nenhuma promoção sugerida para o período."
-            onReview={handleRecommendationReview}
-          />
-        </SurfaceCard>
-
-        <SurfaceCard className="p-5 lg:h-[520px]">
-          <div className="mb-4">
-            <CardTitle>Sugestões de Reposição</CardTitle>
-            <p className="text-[12px] text-(--color-text-secondary)">Itens com necessidade calculada de abastecimento</p>
           </div>
           <RecommendationList
             items={replenishmentRecommendations}
@@ -1248,7 +1437,7 @@ export default function InteligenciaPage() {
             {demandForecasts.length === 0 && (
               <TableRow>
                 <TableCell colSpan={4} className="py-8 text-center text-(--color-text-secondary)">
-                  Nenhuma previsão de demanda publicada.
+                  Nenhuma previsão de demanda publicada. O cálculo precisa de histórico mensal de vendas; sem observações diárias de disponibilidade, o resultado será marcado com confiança baixa.
                 </TableCell>
               </TableRow>
             )}
@@ -1266,6 +1455,11 @@ export default function InteligenciaPage() {
             <p className="text-[12px] text-(--color-text-secondary)">Eficiência, autonomia e risco do saldo atual</p>
           </div>
         </div>
+        {(unitTurnover === null || stockoutRate === null) && (
+          <div className="mb-4 rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-3 text-[12px] leading-relaxed text-(--color-text-secondary)">
+            A cobertura usa as vendas do período e o saldo atual. Giro e ruptura dependem da evolução diária do estoque e serão calculados quando o Flux acumular observações completas de disponibilidade.
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <MetricCard
             label="Giro de Estoque"

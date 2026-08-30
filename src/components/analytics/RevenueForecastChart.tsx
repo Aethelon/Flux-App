@@ -7,6 +7,7 @@ export interface ForecastPoint {
   label: string
   realized: number | null
   projected: number | null
+  realizedPartial?: boolean
 }
 
 const W = 720
@@ -217,7 +218,7 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
           <p className="text-[11px] font-medium text-(--color-text-secondary)">{active.label}</p>
           {active.realized != null && (
             <p className="text-[11px] text-(--color-success)">
-              Realizado: <span className="font-semibold">{formatCurrency(active.realized)}</span>
+              {active.realizedPartial ? "Realizado parcial" : "Realizado"}: <span className="font-semibold">{formatCurrency(active.realized)}</span>
             </p>
           )}
           {active.projected != null && (
