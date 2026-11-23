@@ -20,7 +20,12 @@ jobs:
           script: |
             set -e
             cd /opt/flux-web
-            git pull origin main
+            git fetch origin main
+            if ! git diff --quiet HEAD -- package.json package-lock.json &&
+              git diff --quiet FETCH_HEAD -- package.json package-lock.json; then
+              git stash push -m "Preserve dependency files already included in main" -- package.json package-lock.json
+            fi
+            git merge --ff-only FETCH_HEAD
             export NVM_DIR="$HOME/.nvm"
             source "$NVM_DIR/nvm.sh"
             nvm use 22
