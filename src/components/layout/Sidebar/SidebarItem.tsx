@@ -10,18 +10,21 @@ interface SidebarItemProps {
   label: string
   icon: LucideIcon
   collapsed: boolean
+  onNavigate?: () => void
 }
 
-export function SidebarItem({ href, label, icon: Icon, collapsed }: SidebarItemProps) {
+export function SidebarItem({ href, label, icon: Icon, collapsed, onNavigate }: SidebarItemProps) {
   const pathname = usePathname()
   const isActive = pathname === href || pathname.startsWith(href + "/")
 
   return (
     <Link
       href={href}
+      onNavigate={onNavigate}
+      aria-current={isActive ? "page" : undefined}
       title={collapsed ? label : undefined}
       className={cn(
-        "flex items-center py-1.75 rounded-xs transition-all duration-200 w-full overflow-hidden",
+        "flex min-h-11 items-center py-1.75 rounded-xs transition-all duration-200 w-full overflow-hidden lg:min-h-0",
         collapsed ? "pl-3.5" : "gap-2 px-2.5",
         "text-[13px] font-semibold tracking-[0.2px]",
         "font-(family-name:--font-ui) text-(--color-text-primary)",

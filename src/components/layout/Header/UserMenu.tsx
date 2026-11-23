@@ -12,6 +12,8 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useUserStore } from "@/store/userStore"
 import { cn } from "@/lib/utils"
+import { useLocale } from "../LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
 
 function initials(name: string) {
   return name
@@ -25,6 +27,8 @@ function initials(name: string) {
 export function UserMenu() {
   const router = useRouter()
   const { user, logout } = useUserStore()
+  const { locale } = useLocale()
+  const copy = interfaceCopy[locale]
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" })
@@ -37,18 +41,19 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        aria-label={copy.account}
         className={cn(
-          "flex items-center gap-3.75 h-12.5 px-2 py-1 rounded-xl",
+          "flex size-11 items-center justify-center gap-3.75 rounded-xl lg:h-12.5 lg:w-auto lg:px-2 lg:py-1",
           "bg-(--color-surface-raised) transition-colors",
           "hover:bg-(--color-surface) cursor-pointer"
         )}
       >
-        <div className="flex flex-col items-start pl-2">
-          <span className="text-[14px] font-semibold text-(--color-text-primary) font-(family-name:--font-ui) whitespace-nowrap leading-normal">
+        <div className="hidden max-w-44 min-w-0 flex-col items-start pl-2 lg:flex">
+          <span className="max-w-full truncate text-[14px] font-semibold text-(--color-text-primary) font-(family-name:--font-ui) leading-normal">
             {user.name}
           </span>
-          <span className="text-[12px] font-medium text-(--color-text-secondary) font-(family-name:--font-ui) tracking-[-0.132px] whitespace-nowrap leading-4.5">
-            {user.jobRole?.name ?? (user.role === "admin" ? "Administrador" : "Operador")}
+          <span className="max-w-full truncate text-[12px] font-medium text-(--color-text-secondary) font-(family-name:--font-ui) tracking-[-0.132px] leading-4.5">
+            {user.jobRole?.name ?? (user.role === "admin" ? copy.admin : copy.operator)}
           </span>
         </div>
         <Avatar className="w-9 h-9 rounded-md shrink-0">
@@ -61,14 +66,14 @@ export function UserMenu() {
 
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuItem onClick={() => router.push("/configuracoes")}>
-          <Settings size={14} className="mr-2" /> Configurações
+          <Settings size={14} className="mr-2" /> {copy.settings}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={handleLogout}
           className="text-(--color-text-danger) focus:text-(--color-text-danger)"
         >
-          <LogOut size={14} className="mr-2" /> Sair
+          <LogOut size={14} className="mr-2" /> {copy.logout}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

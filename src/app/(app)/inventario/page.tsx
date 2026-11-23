@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useEffectEvent, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { HTTPError } from "ky"
 import { Plus, Eye, Pencil, Trash2, TriangleAlert } from "lucide-react"
@@ -48,10 +48,18 @@ import { useUnitsStore } from "@/store/unitsStore"
 import { useProductsStore } from "@/store/productsStore"
 import type { Unit, Category } from "@/types/settings"
 import type { Product } from "@/types/product"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { inventoryMessages } from "./messages"
+
+function useInventoryMessages() {
+  const { locale } = useLocale()
+  return inventoryMessages[locale]
+}
 
 function StockCell({ product }: { product: Product }) {
+  const messages = useInventoryMessages()
   if (product.type === "service") {
-    return <span className="text-[14px] text-(--color-text-secondary)">Sob demanda</span>
+    return <span className="text-[14px] text-(--color-text-secondary)">{messages.onDemand}</span>
   }
   const dotClass =
     product.status === "Inativo"
@@ -74,19 +82,11 @@ function StockCell({ product }: { product: Product }) {
     <div className="flex items-center gap-2">
       <span className={cn("size-2 rounded-full shrink-0", dotClass)} />
       <span className={cn("text-[14px]", textClass)}>
-        {product.status === "Esgotado" ? "Esgotado" : `${product.stock} ${product.unit}`}
+        {product.status === "Esgotado" ? messages.outOfStock : `${product.stock} ${product.unit}`}
       </span>
     </div>
   )
 }
-
-const STATUS_FILTERS: { value: string; label: string }[] = [
-  { value: "todos", label: "Todos" },
-  { value: "Ativo", label: "Ativo" },
-  { value: "Baixo estoque", label: "Baixo estoque" },
-  { value: "Esgotado", label: "Esgotado" },
-  { value: "Inativo", label: "Inativo" },
-]
 
 const PER_PAGE = 10
 
@@ -118,19 +118,13 @@ const EMPTY_FORM: ProductForm = {
   active: true,
 }
 
-const PRODUCT_TYPE_LABELS: Record<Product["type"], string> = {
-  finished_product: "Produto acabado",
-  raw_material: "Matéria-prima",
-  packaging: "Embalagem",
-  service: "Serviço",
-}
-
 function matchesQuantityScale(value: number, scale: number) {
   const factor = 10 ** scale
   return Math.abs((value * factor) - Math.round(value * factor)) < 1e-9
 }
 
 export default function InventarioPage() {
+  const messages = useInventoryMessages()
   const products = useProductsStore((state) => state.products)
   const loadProducts = useProductsStore((state) => state.loadProducts)
 
@@ -141,12 +135,21 @@ export default function InventarioPage() {
   const loadCategories = useCategoriesStore((s) => s.loadCategories)
   const loadUnits = useUnitsStore((s) => s.loadUnits)
 
+  const showLoadError = useEffectEvent(() => toast.error(messages.loadError))
+
   useEffect(() => {
     void Promise.all([loadCategories(), loadUnits(), loadProducts()])
-      .catch(() => toast.error("Não foi possível carregar o inventário."))
+      .catch(() => showLoadError())
   }, [loadCategories, loadProducts, loadUnits])
+  const statusFilters = [
+    { value: "todos", label: messages.all },
+    { value: "Ativo", label: messages.active },
+    { value: "Baixo estoque", label: messages.lowStock },
+    { value: "Esgotado", label: messages.outOfStock },
+    { value: "Inativo", label: messages.inactive },
+  ]
   const categoryFilters = [
-    { value: "todas", label: "Todas" },
+    { value: "todas", label: messages.allCategories },
     ...categories.map((c) => ({ value: c.name, label: c.name })),
   ]
   // A busca global manda o produto escolhido em `?q=` para a tela abrir filtrada.
@@ -227,7 +230,7 @@ export default function InventarioPage() {
   async function handleAdd() {
     if (submitting) return
     if (duplicateBarcode) {
-      toast.error(`Este código de barras já pertence a ${duplicateBarcode.name}.`)
+      toast.error(messages.barcodeOwner(duplicateBarcode.name))
       return
     }
     const service = form.type === "service"
@@ -236,20 +239,20 @@ export default function InventarioPage() {
     const category = categories.find((item) => item.name === form.category)
     const unit = units.find((item) => item.abbreviation === form.unit)
     if (!category || !unit) {
-      toast.error("Selecione uma categoria e uma unidade.")
+      toast.error(messages.chooseCategoryAndUnit)
       return
     }
     if (stock < 0 || minStock < 0) {
-      toast.error("Os valores de estoque não podem ser negativos.")
+      toast.error(messages.negativeStock)
       return
     }
     if (!matchesQuantityScale(stock, unit.quantityScale)
       || !matchesQuantityScale(minStock, unit.quantityScale)) {
-      toast.error(`A unidade selecionada aceita até ${unit.quantityScale} casas decimais.`)
+      toast.error(messages.decimalPlaces(unit.quantityScale))
       return
     }
     if (!service && stock > 0 && !form.cost) {
-      toast.error("Informe o custo unitário para lançar o estoque inicial.")
+      toast.error(messages.initialCostRequired)
       return
     }
     setSubmitting(true)
@@ -288,21 +291,21 @@ export default function InventarioPage() {
       }
       await loadProducts()
       setAddOpen(false)
-      toast.success("Produto adicionado com sucesso.")
+      toast.success(messages.added)
     } catch (error) {
       if (productCreated) {
         await loadProducts().catch(() => undefined)
         setAddOpen(false)
         toast.error(stock > 0
-          ? "Produto criado, mas não foi possível lançar o estoque inicial. Ajuste o saldo editando o produto."
-          : "Produto criado, mas não foi possível recarregar o inventário.")
+          ? messages.addStockError
+          : messages.addReloadError)
       } else {
         const body: { code?: string } = error instanceof HTTPError
           ? await error.response.clone().json().catch(() => ({}))
           : {}
         toast.error(body.code === "DUPLICATE_PRODUCT_BARCODE"
-          ? "Este código de barras já está cadastrado."
-          : "Não foi possível adicionar o produto.")
+          ? messages.duplicateBarcode
+          : messages.addError)
       }
     } finally {
       setSubmitting(false)
@@ -312,7 +315,7 @@ export default function InventarioPage() {
   async function handleEdit() {
     if (!selectedProduct || submitting) return
     if (duplicateBarcode) {
-      toast.error(`Este código de barras já pertence a ${duplicateBarcode.name}.`)
+      toast.error(messages.barcodeOwner(duplicateBarcode.name))
       return
     }
     const service = selectedProduct.type === "service"
@@ -321,20 +324,20 @@ export default function InventarioPage() {
     const category = categories.find((item) => item.name === form.category)
     const unit = units.find((item) => item.abbreviation === form.unit)
     if (!category || !unit) {
-      toast.error("Selecione uma categoria e uma unidade.")
+      toast.error(messages.chooseCategoryAndUnit)
       return
     }
     if (stock < 0 || minStock < 0) {
-      toast.error("Os valores de estoque não podem ser negativos.")
+      toast.error(messages.negativeStock)
       return
     }
     if (!matchesQuantityScale(stock, unit.quantityScale)
       || !matchesQuantityScale(minStock, unit.quantityScale)) {
-      toast.error(`A unidade selecionada aceita até ${unit.quantityScale} casas decimais.`)
+      toast.error(messages.decimalPlaces(unit.quantityScale))
       return
     }
     if (!service && stock > selectedProduct.stock && !form.cost) {
-      toast.error("Informe o custo unitário para aumentar o saldo de estoque.")
+      toast.error(messages.increaseCostRequired)
       return
     }
     setSubmitting(true)
@@ -375,21 +378,21 @@ export default function InventarioPage() {
       }
       await loadProducts()
       setEditOpen(false)
-      toast.success("Produto atualizado.")
+      toast.success(messages.updated)
     } catch (error) {
       if (productUpdated) {
         await loadProducts().catch(() => undefined)
         setEditOpen(false)
         toast.error(stock !== selectedProduct.stock
-          ? "Os dados do produto foram atualizados, mas não foi possível ajustar o saldo de estoque."
-          : "Produto atualizado, mas não foi possível recarregar o inventário.")
+          ? messages.updateStockError
+          : messages.updateReloadError)
       } else {
         const body: { code?: string } = error instanceof HTTPError
           ? await error.response.clone().json().catch(() => ({}))
           : {}
         toast.error(body.code === "DUPLICATE_PRODUCT_BARCODE"
-          ? "Este código de barras já está cadastrado."
-          : "Não foi possível atualizar o produto.")
+          ? messages.duplicateBarcode
+          : messages.updateError)
       }
     } finally {
       setSubmitting(false)
@@ -406,10 +409,10 @@ export default function InventarioPage() {
       })
       await loadProducts()
       setDeleteOpen(false)
-      toast.success(`${selectedProduct.name} foi removido.`)
+      toast.success(messages.removed(selectedProduct.name))
       setSelectedProduct(null)
     } catch {
-      toast.error("Não foi possível remover o produto.")
+      toast.error(messages.removeError)
     } finally {
       setSubmitting(false)
     }
@@ -418,14 +421,14 @@ export default function InventarioPage() {
   const columns: Column<Product>[] = [
     {
       key: "name",
-      label: "Produto",
+      label: messages.product,
       render: (row) => (
         <div className={cn("flex flex-col", (row.status === "Esgotado" || row.status === "Inativo") && "opacity-60")}>
           <div className="flex items-center gap-2">
             <span className="font-medium">{row.name}</span>
             {!row.active && (
               <span className="inline-flex items-center rounded-md bg-border/40 px-1.5 py-0.5 text-[10px] font-medium uppercase text-(--color-text-secondary)">
-                Inativo
+                {messages.inactive}
               </span>
             )}
           </div>
@@ -435,7 +438,7 @@ export default function InventarioPage() {
     },
     {
       key: "barcode",
-      label: "Código",
+      label: messages.code,
       render: (row) => (
         <span className="font-mono text-[13px] text-(--color-text-secondary)">
           {row.barcode || "—"}
@@ -444,7 +447,7 @@ export default function InventarioPage() {
     },
     {
       key: "category",
-      label: "Categoria",
+      label: messages.category,
       render: (row) => (
         <span className="inline-flex items-center rounded-md bg-(--color-info)/10 px-2 py-0.5 text-[10px] font-medium uppercase text-(--color-info)">
           {row.category}
@@ -453,38 +456,38 @@ export default function InventarioPage() {
     },
     {
       key: "stock",
-      label: "Estoque",
+      label: messages.stock,
       render: (row) => <StockCell product={row} />,
     },
     {
       key: "price",
-      label: "Preço Unit.",
+      label: messages.unitPrice,
       render: (row) => formatCurrency(row.price),
     },
     {
       key: "actions",
-      label: "Ações",
+      label: messages.actions,
       className: "text-right",
       render: (row) => (
         <div className="flex items-center justify-end gap-1">
           <button
             onClick={() => openView(row)}
             className="p-1.5 rounded hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-            title="Ver produto"
+            title={messages.viewProduct}
           >
             <Eye size={15} />
           </button>
           <button
             onClick={() => openEdit(row)}
             className="p-1.5 rounded hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-            title="Editar produto"
+            title={messages.editProduct}
           >
             <Pencil size={15} />
           </button>
           <button
             onClick={() => openDelete(row)}
             className="p-1.5 rounded hover:bg-(--color-danger)/10 text-(--color-danger)/60 hover:text-(--color-danger) transition-colors"
-            title="Remover produto"
+            title={messages.removeProduct}
           >
             <Trash2 size={15} />
           </button>
@@ -495,20 +498,22 @@ export default function InventarioPage() {
 
   return (
     <div>
-      <PageHeader title="Inventário" subtitle="Gerencie seu estoque de produtos" />
+      <PageHeader title={messages.title} subtitle={messages.subtitle} />
 
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        <StatCard label="Total de Itens" value={totalItems.toLocaleString("pt-BR")} />
-        <StatCard label="Valor em Estoque" value={formatCurrency(totalValue)} />
+      <div className="mb-6 grid grid-cols-2 gap-2 sm:mb-8 sm:gap-4 lg:grid-cols-4">
+        <StatCard label={messages.totalItems} value={totalItems.toLocaleString("pt-BR")} className="max-sm:p-3" valueClassName="wrap-anywhere max-sm:text-[18px] max-sm:leading-tight" />
+        <StatCard label={messages.stockValue} value={formatCurrency(totalValue)} className="max-sm:p-3" valueClassName="wrap-anywhere max-sm:text-[18px] max-sm:leading-tight" />
         <StatCard
-          label="Baixo Estoque"
+          label={messages.lowStockTotal}
           value={lowStockCount}
-          valueClassName="text-(--color-warning)"
+          className="max-sm:p-3"
+          valueClassName="wrap-anywhere text-(--color-warning) max-sm:text-[18px] max-sm:leading-tight"
         />
         <StatCard
-          label="Sem Estoque"
+          label={messages.outOfStockTotal}
           value={outOfStockCount}
-          valueClassName="text-(--color-danger)"
+          className="max-sm:p-3"
+          valueClassName="wrap-anywhere text-(--color-danger) max-sm:text-[18px] max-sm:leading-tight"
         />
       </div>
 
@@ -521,18 +526,18 @@ export default function InventarioPage() {
             <TableSearchInput
               value={search}
               onChange={(v) => { setSearch(v); setPage(1) }}
-              placeholder="Buscar por nome..."
+              placeholder={messages.search}
             />
             <FilterDropdown
-              label="Categoria"
+              label={messages.category}
               value={categoryFilter}
               options={categoryFilters}
               onChange={(v) => { setCategoryFilter(v); setPage(1) }}
             />
             <FilterDropdown
-              label="Status"
+              label={messages.status}
               value={statusFilter}
-              options={STATUS_FILTERS}
+              options={statusFilters}
               onChange={(v) => { setStatusFilter(v); setPage(1) }}
             />
           </>
@@ -544,7 +549,7 @@ export default function InventarioPage() {
             onClick={openAdd}
           >
             <Plus size={14} />
-            Adicionar Produto
+            {messages.addProduct}
           </Button>
         }
         pagination={{
@@ -559,7 +564,7 @@ export default function InventarioPage() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Novo Produto</DialogTitle>
+            <DialogTitle>{messages.newProduct}</DialogTitle>
           </DialogHeader>
           <ProductFormFields
             form={form}
@@ -567,19 +572,19 @@ export default function InventarioPage() {
             categories={categories}
             units={units}
             barcodeError={duplicateBarcode
-              ? `Código já cadastrado para ${duplicateBarcode.name}.`
+              ? messages.knownBarcode(duplicateBarcode.name)
               : undefined}
           />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </Button>
             <Button
               onClick={handleAdd}
               disabled={!form.name || !!duplicateBarcode || submitting}
               className="bg-(--color-accent) text-white"
             >
-              Salvar
+              {messages.save}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -589,7 +594,7 @@ export default function InventarioPage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Editar Produto</DialogTitle>
+            <DialogTitle>{messages.editProductTitle}</DialogTitle>
           </DialogHeader>
           <ProductFormFields
             form={form}
@@ -598,7 +603,7 @@ export default function InventarioPage() {
             units={units}
             typeLocked
             barcodeError={duplicateBarcode
-              ? `Código já cadastrado para ${duplicateBarcode.name}.`
+              ? messages.knownBarcode(duplicateBarcode.name)
               : undefined}
           />
           <DialogFooter showCloseButton={false} className="sm:justify-between">
@@ -612,18 +617,18 @@ export default function InventarioPage() {
               }}
             >
               <Trash2 size={14} />
-              Excluir
+              {messages.delete}
             </Button>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
               <Button variant="outline" onClick={() => setEditOpen(false)}>
-                Cancelar
+                {messages.cancel}
               </Button>
               <Button
                 onClick={handleEdit}
                 disabled={!form.name || !!duplicateBarcode || submitting}
                 className="bg-(--color-accent) text-white"
               >
-                Salvar Alterações
+                {messages.saveChanges}
               </Button>
             </div>
           </DialogFooter>
@@ -634,48 +639,48 @@ export default function InventarioPage() {
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{selectedProduct?.name}</DialogTitle>
+            <DialogTitle className="wrap-anywhere pr-8">{selectedProduct?.name}</DialogTitle>
           </DialogHeader>
           {selectedProduct && (
-            <div className="flex flex-col gap-3 py-2 text-[14px]">
+            <div className="flex flex-col gap-3 py-2 text-[14px] wrap-anywhere [&>div]:gap-2 [&>div>:last-child]:text-right">
               {selectedProduct.description && (
                 <p className="text-(--color-text-secondary)">{selectedProduct.description}</p>
               )}
               <div className="flex items-center justify-between">
-                <span className="text-(--color-text-secondary)">Código de barras</span>
+                <span className="text-(--color-text-secondary)">{messages.barcode}</span>
                 <span className="font-mono">{selectedProduct.barcode || "—"}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-(--color-text-secondary)">Categoria</span>
+                <span className="text-(--color-text-secondary)">{messages.category}</span>
                 <span>{selectedProduct.category}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-(--color-text-secondary)">Estoque</span>
+                <span className="text-(--color-text-secondary)">{messages.stock}</span>
                 <StockCell product={selectedProduct} />
               </div>
               {selectedProduct.type !== "service" && (
                 <div className="flex items-center justify-between">
-                  <span className="text-(--color-text-secondary)">Estoque mínimo</span>
+                  <span className="text-(--color-text-secondary)">{messages.minimumStock}</span>
                   <span>{selectedProduct.minStock} {selectedProduct.unit}</span>
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <span className="text-(--color-text-secondary)">Preço Unit.</span>
+                <span className="text-(--color-text-secondary)">{messages.unitPrice}</span>
                 <span>{formatCurrency(selectedProduct.price)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-(--color-text-secondary)">Situação</span>
-                <span>{selectedProduct.active ? "Ativo" : "Inativo"}</span>
+                <span className="text-(--color-text-secondary)">{messages.statusDetails}</span>
+                <span>{selectedProduct.active ? messages.active : messages.inactive}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-(--color-text-secondary)">Última atualização</span>
+                <span className="text-(--color-text-secondary)">{messages.lastUpdate}</span>
                 <span>{selectedProduct.lastUpdate}</span>
               </div>
             </div>
           )}
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setViewOpen(false)}>
-              Fechar
+              {messages.close}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -688,21 +693,21 @@ export default function InventarioPage() {
             <AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)">
               <TriangleAlert size={20} />
             </AlertDialogMedia>
-            <AlertDialogTitle>Remover produto?</AlertDialogTitle>
+            <AlertDialogTitle>{messages.removeTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedProduct?.name} será arquivado e deixará de aparecer nas operações ativas.
+              {messages.archiveDescription(selectedProduct?.name ?? "")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Arquivar
+              {messages.archive}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -726,6 +731,13 @@ function ProductFormFields({
   typeLocked?: boolean
   barcodeError?: string
 }) {
+  const messages = useInventoryMessages()
+  const productTypeLabels: Record<Product["type"], string> = {
+    finished_product: messages.finishedProduct,
+    raw_material: messages.rawMaterial,
+    packaging: messages.packaging,
+    service: messages.service,
+  }
   const service = form.type === "service"
   const selectedUnit = units.find((unit) => unit.abbreviation === form.unit)
   const quantityStep = selectedUnit?.allowsFractional
@@ -734,10 +746,10 @@ function ProductFormFields({
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="product-barcode">Código de barras (opcional)</Label>
+        <Label htmlFor="product-barcode">{messages.barcodeOptional}</Label>
         <Input
           id="product-barcode"
-          placeholder="Ex: 7891234567890"
+          placeholder="7891234567890"
           value={form.barcode}
           aria-invalid={!!barcodeError}
           aria-describedby={barcodeError ? "product-barcode-error" : undefined}
@@ -750,44 +762,44 @@ function ProductFormFields({
         )}
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="product-name">Nome</Label>
+        <Label htmlFor="product-name">{messages.name}</Label>
         <Input
           id="product-name"
-          placeholder="Produto 1"
+          placeholder={messages.exampleName}
           value={form.name}
           onChange={(e) => onChange({ ...form, name: e.target.value })}
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="product-description">Descrição</Label>
+        <Label htmlFor="product-description">{messages.description}</Label>
         <Textarea
           id="product-description"
-          placeholder="Descrição detalhada do produto"
+          placeholder={messages.descriptionPlaceholder}
           value={form.description}
           onChange={(e) => onChange({ ...form, description: e.target.value })}
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="product-type">Tipo</Label>
+        <Label htmlFor="product-type">{messages.type}</Label>
         <Select
           value={form.type}
           disabled={typeLocked}
           onValueChange={(value) => onChange({ ...form, type: value as Product["type"] })}
         >
           <SelectTrigger id="product-type" className="w-full">
-            <SelectValue>{PRODUCT_TYPE_LABELS[form.type]}</SelectValue>
+            <SelectValue>{productTypeLabels[form.type]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="finished_product">Produto acabado</SelectItem>
-            <SelectItem value="raw_material">Matéria-prima</SelectItem>
-            <SelectItem value="packaging">Embalagem</SelectItem>
-            <SelectItem value="service">Serviço</SelectItem>
+            <SelectItem value="finished_product">{messages.finishedProduct}</SelectItem>
+            <SelectItem value="raw_material">{messages.rawMaterial}</SelectItem>
+            <SelectItem value="packaging">{messages.packaging}</SelectItem>
+            <SelectItem value="service">{messages.service}</SelectItem>
           </SelectContent>
         </Select>
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="product-category">Categoria</Label>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <Label htmlFor="product-category">{messages.category}</Label>
           <Select
             value={form.category}
             onValueChange={(v) => onChange({ ...form, category: v as string })}
@@ -802,8 +814,8 @@ function ProductFormFields({
             </SelectContent>
           </Select>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="product-unit">Unidade</Label>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <Label htmlFor="product-unit">{messages.unit}</Label>
           <Select
             value={form.unit}
             onValueChange={(v) => onChange({ ...form, unit: v as string })}
@@ -821,44 +833,44 @@ function ProductFormFields({
           </Select>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="product-stock">Estoque atual</Label>
+          <Label htmlFor="product-stock">{messages.currentStock}</Label>
           <Input
             id="product-stock"
             type="number"
             step={quantityStep}
             min={0}
-            placeholder={service ? "Sob demanda" : "Ex: 5"}
+            placeholder={service ? messages.onDemand : "5"}
             value={service ? "" : form.stock}
             disabled={service}
             onChange={(e) => onChange({ ...form, stock: e.target.value })}
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="product-price">Preço</Label>
+          <Label htmlFor="product-price">{messages.price}</Label>
           <Input
             id="product-price"
             inputMode="decimal"
-            placeholder="Ex: 1.250,00"
+            placeholder="1.250,00"
             value={form.price}
             onChange={(e) => onChange({ ...form, price: formatMoneyInput(e.target.value) })}
           />
         </div>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="product-cost">Custo unitário</Label>
+        <Label htmlFor="product-cost">{messages.unitCost}</Label>
         <Input
           id="product-cost"
           inputMode="decimal"
-          placeholder="Ex: 750,00"
+          placeholder="750,00"
           value={form.cost}
           onChange={(e) => onChange({ ...form, cost: formatMoneyInput(e.target.value) })}
         />
       </div>
-      <div className="grid grid-cols-2 gap-4 items-end">
+      <div className="grid grid-cols-2 items-end gap-3 sm:gap-4">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="product-min-stock">Estoque mínimo</Label>
+          <Label htmlFor="product-min-stock">{messages.minimumStock}</Label>
           <Input
             id="product-min-stock"
             type="number"
@@ -876,7 +888,7 @@ function ProductFormFields({
             onCheckedChange={(checked) => onChange({ ...form, active: checked })}
           />
           <span className="text-[14px] text-(--color-text-primary) font-(family-name:--font-data)">
-            Ativo
+            {messages.active}
           </span>
         </label>
       </div>

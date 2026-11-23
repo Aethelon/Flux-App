@@ -1,11 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import { Download, Eye, X, QrCode, CreditCard, Banknote } from "lucide-react"
 import { toast } from "sonner"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
+import { HISTORY_MESSAGES } from "@/lib/history-messages"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { formatCurrency } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { HistoryEntry } from "@/types/history"
@@ -15,11 +19,6 @@ import { entryTotal, useHistoryStore } from "@/store/historyStore"
 import { useClientsStore } from "@/store/clientsStore"
 import { api, idempotencyHeaders } from "@/lib/api"
 
-const TABS = [
-  { value: "produto", label: "Produtos" },
-  { value: "servico", label: "Serviços" },
-]
-
 const PAYMENT_ICONS: Record<PaymentKind, typeof QrCode> = {
   pix: QrCode,
   cartao: CreditCard,
@@ -27,8 +26,25 @@ const PAYMENT_ICONS: Record<PaymentKind, typeof QrCode> = {
 }
 
 const PER_PAGE = 10
+const SIDE_PANEL_QUERY = "(min-width: 64rem)"
+
+function subscribeToViewport(onChange: () => void) {
+  const media = window.matchMedia(SIDE_PANEL_QUERY)
+  media.addEventListener("change", onChange)
+  return () => media.removeEventListener("change", onChange)
+}
+
+function hasRoomForSidePanel() {
+  return window.matchMedia(SIDE_PANEL_QUERY).matches
+}
+
+function serverViewport() {
+  return false
+}
 
 export default function HistoricoPage() {
+  const { locale } = useLocale()
+  const messages = HISTORY_MESSAGES[locale]
   const user = useUserStore((s) => s.user)
   const canViewKpis = user?.role === "admin"
   const canExport = user?.role === "admin"
@@ -41,12 +57,13 @@ export default function HistoricoPage() {
   const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null)
   const [panelVisible, setPanelVisible] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const showSidePanel = useSyncExternalStore(subscribeToViewport, hasRoomForSidePanel, serverViewport)
 
   useEffect(() => {
     void loadClients()
       .then(() => loadHistory(canViewKpis))
-      .catch(() => toast.error("Não foi possível carregar o histórico."))
-  }, [canViewKpis, loadClients, loadHistory])
+      .catch(() => toast.error(messages.loadError))
+  }, [canViewKpis, loadClients, loadHistory, messages.loadError])
 
   // Filtro por item: uma venda mista (produto + serviço) aparece nas duas abas.
   const filtered = history.filter((h) => h.items.some((i) => i.type === tab))
@@ -69,6 +86,7 @@ export default function HistoricoPage() {
 
   function closePanel() {
     setPanelVisible(false)
+    if (!showSidePanel) setSelectedEntry(null)
   }
 
   async function handleExport() {
@@ -98,33 +116,31 @@ export default function HistoricoPage() {
       link.download = `historico-vendas-${new Date().toISOString().slice(0, 10)}.csv`
       link.click()
       window.setTimeout(() => URL.revokeObjectURL(href), 0)
-      toast.success("Histórico exportado.")
+      toast.success(messages.exported)
     } catch {
-      toast.error("Não foi possível exportar o histórico.")
+      toast.error(messages.exportError)
     } finally {
       setExporting(false)
     }
   }
 
-  const subtotal = selectedEntry ? selectedEntry.items.reduce((sum, i) => sum + i.total, 0) : 0
-  const total = selectedEntry?.netTotal ?? 0
-
   const columns: Column<HistoryEntry>[] = [
     {
       key: "orderNumber",
-      label: "Nº da Compra",
+      label: messages.orderNumber,
       render: (row) => <span className="font-medium">{row.orderNumber}</span>,
     },
-    { key: "clientName", label: "Cliente" },
-    { key: "phone", label: "Telefone" },
+    { key: "clientName", label: messages.client, render: (entry) => entry.clientName ?? interfaceCopy[locale].anonymousCustomer },
+    { key: "phone", label: messages.phone },
     {
       key: "total",
-      label: "Total",
+      label: messages.total,
       render: (row) => <span className="font-medium">{formatCurrency(entryTotal(row))}</span>,
     },
     {
       key: "view",
-      label: "Compra",
+      label: messages.purchase,
+      className: "max-sm:sticky max-sm:right-0 max-sm:z-10 max-sm:bg-(--color-surface)",
       render: (row) => {
         const active = selectedEntry?.id === row.id && panelVisible
         return (
@@ -136,32 +152,33 @@ export default function HistoricoPage() {
                 ? "bg-primary/15 text-(--color-accent)"
                 : "hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary)"
             )}
-            title={active ? "Fechar visualização" : "Ver compra"}
+            aria-label={active ? messages.close : messages.view}
+            title={active ? messages.close : messages.view}
           >
             <Eye size={16} />
           </button>
         )
       },
     },
-    { key: "date", label: "Data" },
+    { key: "date", label: messages.date },
   ]
 
   return (
     <div>
       <PageHeader
-        title="Histórico"
-        subtitle="Gerencie sua base de histórico de compras e vendas de serviços"
+        title={messages.title}
+        subtitle={messages.subtitle}
       />
 
       {canViewKpis && (
-        <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {[
-            { label: "Faturamento Líquido", value: (kpis?.netRevenueCents ?? 0) / 100 },
-            { label: "Ticket Médio", value: (kpis?.averageTicketCents ?? 0) / 100 },
+            { label: messages.netRevenue, value: (kpis?.netRevenueCents ?? 0) / 100 },
+            { label: messages.averageTicket, value: (kpis?.averageTicketCents ?? 0) / 100 },
           ].map(({ label, value }) => (
             <div
               key={label}
-              className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-6"
+              className="flex flex-col gap-2 rounded-xl border border-(--color-border) bg-(--color-surface) p-4 sm:gap-4 sm:p-6"
             >
               <div className="flex flex-col gap-1">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.55px] text-(--color-text-secondary) font-(family-name:--font-data)">
@@ -172,7 +189,7 @@ export default function HistoricoPage() {
                 </span>
               </div>
               <span className="text-[12px] text-(--color-text-secondary)">
-                Calculado e versionado pelo backend.
+                {messages.kpiSource}
               </span>
             </div>
           ))}
@@ -185,7 +202,11 @@ export default function HistoricoPage() {
             columns={columns}
             data={paginated}
             keyField="id"
-            tabs={TABS}
+            emptyMessage={messages.empty}
+            tabs={[
+              { value: "produto", label: messages.products },
+              { value: "servico", label: messages.services },
+            ]}
             activeTab={tab}
             onTabChange={(t) => { setTab(t); setPage(1) }}
             actions={canExport ? (
@@ -197,7 +218,7 @@ export default function HistoricoPage() {
                 onClick={handleExport}
               >
                 <Download size={14} />
-                {exporting ? "Exportando..." : "Exportar"}
+                {exporting ? messages.exporting : messages.export}
               </Button>
             ) : undefined}
             pagination={{
@@ -209,14 +230,15 @@ export default function HistoricoPage() {
           />
         </div>
 
-        {selectedEntry && (
-          <div
+        {selectedEntry && (showSidePanel ? (
+          <aside
             className={cn(
               "shrink-0 overflow-hidden rounded-xl border border-(--color-border) bg-(--color-surface) transition-all duration-200 ease-out",
               panelVisible ? "w-80 opacity-100" : "w-0 opacity-0"
             )}
-            onTransitionEnd={(e) => {
-              if (e.propertyName === "width" && !panelVisible) {
+            inert={!panelVisible}
+            onTransitionEnd={(event) => {
+              if (event.target === event.currentTarget && event.propertyName === "width" && !panelVisible) {
                 setSelectedEntry(null)
               }
             }}
@@ -224,97 +246,127 @@ export default function HistoricoPage() {
             <div className="flex w-80 items-center justify-end p-3">
               <button
                 onClick={closePanel}
-                className="p-1 rounded hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
+                className="rounded p-1 text-(--color-text-secondary) transition-colors hover:bg-(--color-surface-raised) hover:text-(--color-text-primary)"
+                aria-label={messages.close}
               >
                 <X size={16} />
               </button>
             </div>
-
             <div className="flex w-80 flex-col gap-5 px-5 pb-5">
               <h3 className="text-center text-[18px] font-semibold text-(--color-text-primary) font-(family-name:--font-ui)">
-                Compra Nº{selectedEntry.orderNumber}
+                {messages.purchaseTitle(selectedEntry.orderNumber)}
               </h3>
-
-              <div className="flex flex-col gap-3">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">
-                  Itens da Compra
-                </span>
-                <div className="flex max-h-56 flex-col gap-2.5 overflow-y-auto">
-                  {selectedEntry.items.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between gap-2 text-[13px]">
-                      <span className="text-(--color-text-primary)">
-                        {item.quantity}x {item.name}
-                      </span>
-                      <span className="shrink-0 text-(--color-text-secondary)">
-                        {formatCurrency(item.total)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2 border-t border-(--color-border) pt-4">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">
-                  Detalhes
-                </span>
-                <div className="flex items-center justify-between text-[13px]">
-                  <span className="text-(--color-text-secondary)">Subtotal</span>
-                  <span className="text-(--color-text-primary)">{formatCurrency(subtotal)}</span>
-                </div>
-                {selectedEntry.discount > 0 && (
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-(--color-text-secondary)">Desconto</span>
-                    <span className="text-(--color-danger)">
-                      -{formatCurrency(selectedEntry.discount)}
-                    </span>
-                  </div>
-                )}
-                {selectedEntry.returnedAmount > 0 && (
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-(--color-text-secondary)">Devoluções</span>
-                    <span className="text-(--color-danger)">
-                      -{formatCurrency(selectedEntry.returnedAmount)}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between text-[13px] font-semibold">
-                  <span className="text-(--color-text-primary)">Total</span>
-                  <span className="text-(--color-text-primary)">{formatCurrency(total)}</span>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2 border-t border-(--color-border) pt-4">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">
-                  Forma de Pagamento
-                </span>
-                <div className="flex flex-col gap-2">
-                  {selectedEntry.payments.map((p, i) => {
-                    const PaymentIcon = PAYMENT_ICONS[p.kind]
-                    const showInstallments =
-                      p.kind === "cartao" && p.cardType === "credito" && (p.installments ?? 1) > 1
-                    return (
-                      <div key={i} className="flex items-center justify-between gap-2">
-                        <span className="inline-flex w-fit items-center gap-2 rounded-full bg-(--color-text-primary) px-3 py-1.5 text-[13px] font-medium text-(--color-surface)">
-                          <PaymentIcon size={14} />
-                          {describePayment(p)}
-                        </span>
-                        <span className="text-right text-[13px] text-(--color-text-primary)">
-                          {formatCurrency(p.amount)}
-                          {showInstallments && (
-                            <span className="block text-[11px] text-(--color-text-secondary)">
-                              {p.installments}x de {formatCurrency(p.amount / (p.installments ?? 1))}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+              <PurchaseDetails entry={selectedEntry} />
             </div>
-          </div>
-        )}
+          </aside>
+        ) : (
+          <Dialog open onOpenChange={(open) => { if (!open) closePanel() }}>
+            <DialogContent className="gap-5 sm:max-w-md">
+              <DialogHeader className="pr-8">
+                <DialogTitle>{messages.purchaseTitle(selectedEntry.orderNumber)}</DialogTitle>
+              </DialogHeader>
+              <PurchaseDetails entry={selectedEntry} />
+            </DialogContent>
+          </Dialog>
+        ))}
       </div>
     </div>
+  )
+}
+
+function PurchaseDetails({ entry }: { entry: HistoryEntry }) {
+  const { locale } = useLocale()
+  const messages = HISTORY_MESSAGES[locale]
+  const subtotal = entry.items.reduce((sum, item) => sum + item.total, 0)
+  const total = entry.netTotal
+
+  return (
+    <>
+      <div className="flex flex-col gap-3">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">
+          {messages.items}
+        </span>
+        <div className="flex max-h-56 flex-col gap-2.5 overflow-y-auto">
+          {entry.items.map((item, i) => (
+            <div key={i} className="flex items-center justify-between gap-2 text-[13px]">
+              <span className="min-w-0 wrap-anywhere text-(--color-text-primary)">
+                {item.quantity}x {item.name}
+              </span>
+              <span className="shrink-0 text-(--color-text-secondary)">
+                {formatCurrency(item.total)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-(--color-border) pt-4">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">
+          {messages.details}
+        </span>
+        <div className="flex items-center justify-between text-[13px]">
+          <span className="text-(--color-text-secondary)">{messages.subtotal}</span>
+          <span className="text-(--color-text-primary)">{formatCurrency(subtotal)}</span>
+        </div>
+        {entry.discount > 0 && (
+          <div className="flex items-center justify-between text-[13px]">
+            <span className="text-(--color-text-secondary)">{messages.discount}</span>
+            <span className="text-(--color-danger)">
+              -{formatCurrency(entry.discount)}
+            </span>
+          </div>
+        )}
+        {entry.returnedAmount > 0 && (
+          <div className="flex items-center justify-between text-[13px]">
+            <span className="text-(--color-text-secondary)">{messages.returns}</span>
+            <span className="text-(--color-danger)">
+              -{formatCurrency(entry.returnedAmount)}
+            </span>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-[13px] font-semibold">
+          <span className="text-(--color-text-primary)">{messages.total}</span>
+          <span className="text-(--color-text-primary)">{formatCurrency(total)}</span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-(--color-border) pt-4">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">
+          {messages.paymentMethod}
+        </span>
+        <div className="flex flex-col gap-2">
+          {entry.payments.map((p, i) => {
+            const PaymentIcon = PAYMENT_ICONS[p.kind]
+            const installments = p.installments ?? 1
+            const showInstallments = p.kind === "cartao" && p.cardType === "credito" && installments > 1
+            let paymentLabel = describePayment(p)
+            if (locale !== "pt-BR") {
+              if (p.kind === "dinheiro") paymentLabel = messages.cash
+              if (p.kind === "cartao") {
+                paymentLabel = p.cardType === "debito"
+                  ? messages.cardDebit
+                  : showInstallments ? messages.cardInstallments(installments) : messages.cardCredit
+              }
+            }
+            return (
+              <div key={i} className="flex items-center justify-between gap-2">
+                <span className="inline-flex w-fit min-w-0 items-center gap-2 rounded-full bg-(--color-text-primary) px-3 py-1.5 text-[13px] font-medium text-(--color-surface)">
+                  <PaymentIcon size={14} className="shrink-0" />
+                  {paymentLabel}
+                </span>
+                <span className="text-right text-[13px] text-(--color-text-primary)">
+                  {formatCurrency(p.amount)}
+                  {showInstallments && (
+                    <span className="block text-[11px] text-(--color-text-secondary)">
+                      {messages.installments(installments, formatCurrency(p.amount / installments))}
+                    </span>
+                  )}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </>
   )
 }

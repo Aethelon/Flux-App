@@ -1,6 +1,8 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { INTELLIGENCE_MESSAGES } from "@/lib/intelligence-messages"
 import { formatCurrency } from "@/lib/formatters"
 
 export interface ForecastPoint {
@@ -16,8 +18,6 @@ const PAD_L = 52
 const PAD_R = 14
 const PAD_T = 16
 const PAD_B = 30
-const PLOT_W = W - PAD_L - PAD_R
-const PLOT_H = H - PAD_T - PAD_B
 
 function niceCeil(value: number): number {
   if (value <= 0) return 0
@@ -33,15 +33,37 @@ function abbrev(value: number): string {
 }
 
 export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
+  const { locale } = useLocale()
+  const messages = INTELLIGENCE_MESSAGES[locale]
   const containerRef = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState<number | null>(null)
+  const [availableWidth, setAvailableWidth] = useState(W)
+  const compact = availableWidth < 480
+  const width = compact ? availableWidth : W
+  const height = compact ? 200 : H
+  const plotWidth = width - PAD_L - PAD_R
+  const plotHeight = height - PAD_T - PAD_B
+  const lastIndex = data.length - 1
+  const labelStep = compact ? Math.max(1, Math.ceil((lastIndex * 34) / plotWidth)) : 1
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const observer = new ResizeObserver(([entry]) => {
+      const measuredWidth = Math.floor(entry.contentRect.width)
+      if (measuredWidth > PAD_L + PAD_R) setAvailableWidth(measuredWidth)
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   const values = data.flatMap((d) => [d.realized, d.projected]).filter((v): v is number => v != null)
   const yMax = niceCeil(Math.max(...values, 1))
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => t * yMax)
 
-  const x = (i: number) => (data.length <= 1 ? PAD_L : PAD_L + (i / (data.length - 1)) * PLOT_W)
-  const y = (v: number) => PAD_T + PLOT_H - (v / yMax) * PLOT_H
+  const x = (i: number) => (data.length <= 1 ? PAD_L : PAD_L + (i / (data.length - 1)) * plotWidth)
+  const y = (v: number) => PAD_T + plotHeight - (v / yMax) * plotHeight
 
   function seriesPoints(key: "realized" | "projected") {
     return data
@@ -69,30 +91,32 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
         `L ${x(realizedPts[realizedPts.length - 1].i)} ${y(0)} L ${x(realizedPts[0].i)} ${y(0)} Z`
       : ""
 
-  function handleMove(e: React.MouseEvent<HTMLDivElement>) {
+  function handleMove(e: React.MouseEvent<SVGSVGElement>) {
     const rect = containerRef.current?.getBoundingClientRect()
     if (!rect) return
-    const relX = ((e.clientX - rect.left) / rect.width) * W
-    const ratio = (relX - PAD_L) / PLOT_W
+    const relX = ((e.clientX - rect.left) / rect.width) * width
+    const ratio = (relX - PAD_L) / plotWidth
     const idx = Math.round(ratio * (data.length - 1))
     setHover(Math.max(0, Math.min(data.length - 1, idx)))
   }
 
   const active = hover != null ? data[hover] : null
-  const activeLeft = hover != null ? (x(hover) / W) * 100 : 0
+  const activeLeft = hover != null ? (x(hover) / width) * 100 : 0
   const belowForecastIndex = data.findIndex(({ realizedPartial, realized, projected }) => (
     realizedPartial && realized != null && projected != null && realized < projected
   ))
   const activeBelowForecast = hover === belowForecastIndex
 
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full"
-      onMouseMove={handleMove}
-      onMouseLeave={() => setHover(null)}
-    >
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+    <div ref={containerRef} className="relative min-w-0">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full"
+        preserveAspectRatio="xMidYMid meet"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHover(null)}
+        onClick={handleMove}
+      >
         <defs>
           <linearGradient id="realized-area" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="var(--color-success)" stopOpacity="0.25" />
@@ -105,7 +129,7 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
           <g key={t}>
             <line
               x1={PAD_L}
-              x2={W - PAD_R}
+              x2={width - PAD_R}
               y1={y(t)}
               y2={y(t)}
               stroke="var(--color-border)"
@@ -125,11 +149,11 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
         ))}
 
         {/* x labels */}
-        {data.map((d, i) => (
+        {data.map((d, i) => (i === lastIndex || (i % labelStep === 0 && lastIndex - i >= labelStep)) && (
           <text
             key={d.label}
             x={x(i)}
-            y={H - 10}
+            y={height - 10}
             textAnchor="middle"
             className="fill-(--color-text-secondary)"
             fontSize={11}
@@ -191,7 +215,7 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
               x1={x(hover!)}
               x2={x(hover!)}
               y1={PAD_T}
-              y2={PAD_T + PLOT_H}
+              y2={PAD_T + plotHeight}
               stroke="var(--color-text-secondary)"
               strokeWidth={1}
               strokeDasharray="3 3"
@@ -223,8 +247,12 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
 
       {active && (
         <div
-          className="pointer-events-none absolute top-2 z-10 -translate-x-1/2 rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-3 py-2 shadow-md"
-          style={{ left: `${activeLeft}%` }}
+          className="pointer-events-none absolute top-2 z-10 w-max max-w-full rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-3 py-2 shadow-md"
+          style={{
+            left: compact ? undefined : `clamp(6rem, ${activeLeft}%, calc(100% - 6rem))`,
+            right: compact ? 0 : undefined,
+            transform: compact ? undefined : "translateX(-50%)",
+          }}
         >
           <p className="text-[11px] font-medium text-(--color-text-secondary)">{active.label}</p>
           {active.realized != null && (
@@ -232,12 +260,12 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
               className="text-[11px]"
               style={{ color: activeBelowForecast ? "var(--color-text-danger)" : "var(--color-success)" }}
             >
-              {active.realizedPartial ? "Realizado parcial" : "Realizado"}: <span className="font-semibold">{formatCurrency(active.realized)}</span>
+              {active.realizedPartial ? messages.realizedPartial : messages.realized}: <span className="font-semibold">{formatCurrency(active.realized)}</span>
             </p>
           )}
           {active.projected != null && (
             <p className="text-[11px] text-(--color-accent)">
-              Projetado: <span className="font-semibold">{formatCurrency(active.projected)}</span>
+              {messages.projected}: <span className="font-semibold">{formatCurrency(active.projected)}</span>
             </p>
           )}
         </div>
@@ -246,16 +274,16 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
         <div className="flex items-center gap-2">
           <span className="h-0.5 w-4 rounded-full bg-(--color-success)" />
-          <span className="text-[12px] text-(--color-text-secondary)">Faturamento Realizado</span>
+          <span className="text-[12px] text-(--color-text-secondary)">{messages.realizedRevenue}</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="h-0 w-4 border-t-2 border-dashed border-(--color-accent)" />
-          <span className="text-[12px] text-(--color-text-secondary)">Faturamento Projetado</span>
+          <span className="text-[12px] text-(--color-text-secondary)">{messages.projectedRevenue}</span>
         </div>
         {belowForecastIndex !== -1 && (
           <div className="flex items-center gap-2">
             <span className="size-2 rounded-full bg-(--color-danger)" aria-hidden="true" />
-            <span className="text-[12px] text-(--color-text-secondary)">Realizado parcial abaixo da previsão</span>
+            <span className="text-[12px] text-(--color-text-secondary)">{messages.belowForecast}</span>
           </div>
         )}
       </div>

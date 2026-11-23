@@ -13,6 +13,8 @@ import {
 } from "lucide-react"
 import type { HistorySearchRecord } from "@/store/historyStore"
 import { formatCurrency, phoneDigits } from "@/lib/formatters"
+import { interfaceCopy } from "@/lib/interfaceCopy"
+import { DEFAULT_LOCALE, type Locale } from "@/lib/locale"
 import type { Client } from "@/types/client"
 import type { Product } from "@/types/product"
 import type { KanbanColumn, Order } from "@/types/order"
@@ -147,15 +149,28 @@ const PAGE_ITEMS: SearchItem[] = [
   },
 ]
 
+const pageTranslations = {
+  "/dashboard": ["dashboard", "System overview", "Vista general del sistema"],
+  "/frente-de-caixa": ["pointOfSale", "Sales and payments", "Ventas y pagos"],
+  "/caixa": ["cash", "Register sessions and movements", "Sesiones y movimientos de caja"],
+  "/ordens": ["orders", "Service order board", "Tablero de órdenes de servicio"],
+  "/inteligencia": ["intelligence", "Reports, charts and forecasts", "Informes, gráficos y proyecciones"],
+  "/inventario": ["inventory", "Products and stock", "Productos e inventario"],
+  "/historico": ["history", "Sales and service history", "Historial de ventas y servicios"],
+  "/clientes": ["customers", "Customer management", "Gestión de clientes"],
+  "/funcionarios": ["employees", "Employees and access roles", "Empleados y perfiles de acceso"],
+  "/configuracoes": ["settings", "Account settings", "Configuración de la cuenta"],
+} as const
+
 // Produtos e clientes abrem a tela já filtrada pelo nome (o `q` alimenta a
 // busca da própria tabela). Ordens e compras não têm filtro de busca, então
 // levam para a tela onde o item está listado.
-function productItems(products: Product[]): SearchItem[] {
+function productItems(products: Product[], locale: Locale): SearchItem[] {
   return products.map((p) => ({
     id: `produto-${p.id}`,
     label: p.name,
     description: `${formatCurrency(p.price)} · ${
-      p.status === "Esgotado" ? "Esgotado" : `${p.stock} ${p.unit}`
+      p.status === "Esgotado" ? interfaceCopy[locale].statuses.Esgotado : `${p.stock} ${p.unit}`
     }`,
     href: `/inventario?q=${encodeURIComponent(p.name)}`,
     icon: Package,
@@ -164,11 +179,11 @@ function productItems(products: Product[]): SearchItem[] {
   }))
 }
 
-function clientItems(clients: Client[]): SearchItem[] {
+function clientItems(clients: Client[], locale: Locale): SearchItem[] {
   return clients.map((c) => ({
     id: `cliente-${c.id}`,
     label: c.name,
-    description: `${c.status} · ${c.phone}`,
+    description: `${interfaceCopy[locale].statuses[c.status]} · ${c.phone}`,
     href: `/clientes?q=${encodeURIComponent(c.name)}`,
     icon: Users,
     keywords: [c.email, c.phone, phoneDigits(c.phone)],
@@ -191,16 +206,19 @@ function orderItems(orders: Order[], columns: KanbanColumn[]): SearchItem[] {
   })
 }
 
-function historyItems(history: HistorySearchRecord[]): SearchItem[] {
-  return history.map((e) => ({
-    id: `compra-${e.id}`,
-    label: `Nº${e.businessNumber} · ${e.customerName}`,
-    description: new Date(e.completedAt).toLocaleDateString("pt-BR"),
-    href: "/historico",
-    icon: History,
-    keywords: [e.customerName, ...e.itemNames],
-    group: "Compras",
-  }))
+function historyItems(history: HistorySearchRecord[], locale: Locale): SearchItem[] {
+  return history.map((e) => {
+    const customer = e.customerName ?? interfaceCopy[locale].anonymousCustomer
+    return {
+      id: `compra-${e.id}`,
+      label: `#${e.businessNumber} · ${customer}`,
+      description: new Date(e.completedAt).toLocaleDateString(locale),
+      href: "/historico",
+      icon: History,
+      keywords: [customer, ...e.itemNames],
+      group: "Compras",
+    }
+  })
 }
 
 // Clientes vêm do store (podem ser cadastrados em tempo real); o resto sai das
@@ -210,14 +228,22 @@ export function buildSearchIndex(
   products: Product[],
   orders: Order[],
   columns: KanbanColumn[],
-  history: HistorySearchRecord[]
+  history: HistorySearchRecord[],
+  locale: Locale = DEFAULT_LOCALE,
 ): SearchItem[] {
+  const pages = locale === DEFAULT_LOCALE ? PAGE_ITEMS : PAGE_ITEMS.map((item) => {
+    const translation = pageTranslations[item.href as keyof typeof pageTranslations]
+    if (!translation) return item
+    const [label, english, spanish] = translation
+    const description = locale === "es" ? spanish : english
+    return { ...item, label: interfaceCopy[locale][label], description, keywords: [...item.keywords, description] }
+  })
   return [
-    ...productItems(products),
-    ...clientItems(clients),
+    ...productItems(products, locale),
+    ...clientItems(clients, locale),
     ...orderItems(orders, columns),
-    ...historyItems(history),
-    ...PAGE_ITEMS,
+    ...historyItems(history, locale),
+    ...pages,
   ]
 }
 

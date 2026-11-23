@@ -11,6 +11,8 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
 
 export interface Column<T> {
   key: keyof T | string
@@ -95,21 +97,23 @@ export function DataTable<T>({
   filters,
   actions,
   loading,
-  emptyMessage = "Nenhum registro encontrado.",
+  emptyMessage,
   className,
 }: DataTableProps<T>) {
   const totalPages = pagination ? Math.ceil(pagination.total / pagination.perPage) : 1
   const start = pagination ? (pagination.page - 1) * pagination.perPage + 1 : 1
   const end = pagination ? Math.min(pagination.page * pagination.perPage, pagination.total) : data.length
   const visiblePages = pagination ? paginationItems(pagination.page, totalPages) : []
+  const { locale } = useLocale()
+  const copy = interfaceCopy[locale]
 
   return (
-    <div className={cn("rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden", className)}>
+    <div className={cn("min-w-0 rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden", className)}>
       {(tabs || filters || actions) && (
-        <div className="flex items-center justify-between gap-4 px-3 py-3 border-b border-(--color-border) bg-(--color-surface-raised)">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-(--color-border) bg-(--color-surface-raised) px-3 py-3 sm:gap-4">
           {tabs && (
-            <Tabs value={activeTab} onValueChange={onTabChange}>
-              <TabsList className="bg-(--color-surface)">
+            <Tabs value={activeTab} onValueChange={onTabChange} className="max-w-full overflow-x-auto">
+              <TabsList className="min-w-max bg-(--color-surface)">
                 {tabs.map((t) => (
                   <TabsTrigger key={t.value} value={t.value}>
                     {t.label}
@@ -118,8 +122,8 @@ export function DataTable<T>({
               </TabsList>
             </Tabs>
           )}
-          {filters && <div className="flex items-center gap-2">{filters}</div>}
-          {actions && <div className="flex items-center gap-2 ml-auto">{actions}</div>}
+          {filters && <div className="flex min-w-0 flex-[1_1_100%] flex-wrap items-center gap-2 sm:flex-[0_1_auto]">{filters}</div>}
+          {actions && <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
         </div>
       )}
 
@@ -151,15 +155,6 @@ export function DataTable<T>({
                   ))}
                 </TableRow>
               ))
-            ) : data.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="text-center py-12 text-(--color-text-secondary) font-(family-name:--font-data)"
-                >
-                  {emptyMessage}
-                </TableCell>
-              </TableRow>
             ) : (
               data.map((row, i) => (
                 <TableRow
@@ -185,17 +180,23 @@ export function DataTable<T>({
           </TableBody>
         </Table>
       </div>
+      {!loading && data.length === 0 && (
+        <p role="status" className="border-t border-(--color-border) px-3 py-12 text-center text-sm text-(--color-text-secondary)">
+          {emptyMessage ?? copy.noRecords}
+        </p>
+      )}
 
       {pagination && pagination.total > 0 && (
-        <div className="flex items-center justify-between px-5 py-3 border-t border-(--color-border) bg-(--color-surface-raised) text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 border-t border-(--color-border) bg-(--color-surface-raised) text-[12px] text-(--color-text-secondary) font-(family-name:--font-data) sm:px-5 sm:py-3">
           <span>
-            Mostrando {start} a {end} de {pagination.total}
+            {copy.showing(start, end, pagination.total)}
           </span>
           <div className="flex items-center gap-1">
             <button
               onClick={() => pagination.onChange(pagination.page - 1)}
               disabled={pagination.page <= 1}
-              className="px-2 py-1 rounded disabled:opacity-40 hover:bg-(--color-surface-raised) transition-colors"
+              aria-label={copy.previousPage}
+              className="min-h-10 min-w-9 px-2 py-1 rounded disabled:opacity-40 hover:bg-(--color-surface-raised) transition-colors sm:min-h-0 sm:min-w-0"
             >
               ‹
             </button>
@@ -206,7 +207,7 @@ export function DataTable<T>({
                   onClick={() => pagination.onChange(item)}
                   aria-current={item === pagination.page ? "page" : undefined}
                   className={cn(
-                    "px-2.5 py-1 rounded transition-colors",
+                    "hidden px-2.5 py-1 rounded transition-colors sm:block",
                     item === pagination.page
                       ? "bg-(--color-accent) text-white"
                       : "hover:bg-(--color-surface-raised)"
@@ -215,13 +216,15 @@ export function DataTable<T>({
                   {item}
                 </button>
               ) : (
-                <span key={item} className="px-1" aria-hidden="true">…</span>
+                <span key={item} className="hidden px-1 sm:block" aria-hidden="true">…</span>
               )
             ))}
+            <span className="sm:hidden">{copy.pageOf(pagination.page, totalPages)}</span>
             <button
               onClick={() => pagination.onChange(pagination.page + 1)}
               disabled={pagination.page >= totalPages}
-              className="px-2 py-1 rounded disabled:opacity-40 hover:bg-(--color-surface-raised) transition-colors"
+              aria-label={copy.nextPage}
+              className="min-h-10 min-w-9 px-2 py-1 rounded disabled:opacity-40 hover:bg-(--color-surface-raised) transition-colors sm:min-h-0 sm:min-w-0"
             >
               ›
             </button>

@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useClientsStore } from "@/store/clientsStore"
 import { ClientFormDialog } from "./ClientFormDialog"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
 
 export function ClientCombobox({
   id,
@@ -22,6 +24,8 @@ export function ClientCombobox({
   align?: "down" | "up"
   disabled?: boolean
 }) {
+  const { locale } = useLocale()
+  const copy = interfaceCopy[locale]
   const clients = useClientsStore((s) => s.clients)
   const [open, setOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
@@ -35,7 +39,7 @@ export function ClientCombobox({
     <div className="relative">
       <Input
         id={id}
-        placeholder="Buscar ou digitar cliente"
+          placeholder={copy.clientSearch}
         value={value}
         disabled={disabled}
         autoComplete="off"
@@ -56,16 +60,16 @@ export function ClientCombobox({
               key={c.id}
               type="button"
               onMouseDown={(e) => { e.preventDefault(); onChange(c.name); setOpen(false) }}
-              className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-(--color-surface-raised)"
+              className="flex w-full min-w-0 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-(--color-surface-raised) sm:flex-row sm:items-center sm:justify-between sm:gap-2"
             >
-              <span className="text-[13px] text-(--color-text-primary)">{c.name}</span>
-              <span className="shrink-0 text-[11px] text-(--color-text-secondary)">{c.email}</span>
+              <span className="max-w-full wrap-anywhere text-[13px] text-(--color-text-primary)">{c.name}</span>
+              <span className="max-w-full wrap-anywhere text-[11px] text-(--color-text-secondary) sm:max-w-[50%]">{c.email}</span>
             </button>
           ))}
 
           {filtered.length === 0 && (
             <div className="px-2 py-1.5 text-[13px] text-(--color-text-secondary)">
-              Nenhum cliente encontrado
+              {copy.noClients}
             </div>
           )}
 
@@ -75,7 +79,7 @@ export function ClientCombobox({
             className="mt-1 flex w-full items-center gap-2 rounded-md border-t border-(--color-border) px-2 py-1.5 text-left text-[13px] text-(--color-accent) hover:bg-(--color-surface-raised)"
           >
             <Plus size={14} />
-            Adicionar cliente
+            {copy.addClient}
           </button>
         </div>
       )}

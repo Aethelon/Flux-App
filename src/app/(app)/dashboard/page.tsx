@@ -4,6 +4,9 @@ import { useEffect } from "react"
 import Link from "next/link"
 import { ArrowRight, PackagePlus, TrendingUp, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { DASHBOARD_MESSAGES } from "@/lib/dashboard-messages"
+import type { Locale } from "@/lib/locale"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { MiniLine } from "@/components/shared/MiniLine"
 import { CaixaResumoCard } from "@/components/caixa/CaixaResumoCard"
@@ -14,7 +17,7 @@ import { type Recommendation, useAnalyticsStore } from "@/store/analyticsStore"
 import { useOrdersStore } from "@/store/ordersStore"
 import { useUserStore } from "@/store/userStore"
 
-const CARD = "rounded-xl border border-(--color-border) bg-(--color-surface) p-6"
+const CARD = "min-w-0 rounded-xl border border-(--color-border) bg-(--color-surface) p-4 sm:p-6"
 const CARD_LABEL =
   "text-[11px] font-semibold uppercase tracking-[0.55px] text-(--color-text-secondary) font-(family-name:--font-data)"
 const CARD_VALUE =
@@ -57,8 +60,8 @@ function MiniBars({
   )
 }
 
-function monthLabel(bucketStart: string): string {
-  const label = new Intl.DateTimeFormat("pt-BR", { month: "short" })
+function monthLabel(bucketStart: string, locale: Locale): string {
+  const label = new Intl.DateTimeFormat(locale, { month: "short" })
     .format(new Date(`${bucketStart}T12:00:00`))
     .replace(".", "")
   return label.charAt(0).toUpperCase() + label.slice(1)
@@ -74,14 +77,9 @@ function replenishmentQuantity(recommendation: Recommendation): number | null {
   return typeof quantity === "number" ? quantity : null
 }
 
-const CONFIDENCE_LABEL: Record<Recommendation["confidenceLabel"], string> = {
-  unavailable: "Indisponível",
-  low: "Baixa",
-  medium: "Média",
-  high: "Alta",
-}
-
 export default function DashboardPage() {
+  const { locale } = useLocale()
+  const messages = DASHBOARD_MESSAGES[locale]
   const user = useUserStore((state) => state.user)
   const canViewIntelligence = hasPermission(user?.role, user?.permissions, "intelligence.view")
   const canViewCash = hasPermission(user?.role, user?.permissions, "cash.view")
@@ -98,13 +96,14 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return
     void Promise.all([loadDashboard(undefined, canViewIntelligence), loadOrders()])
-      .catch(() => toast.error("Não foi possível carregar o dashboard."))
-  }, [canViewIntelligence, loadDashboard, loadOrders, user])
+      .catch(() => toast.error(messages.loadError))
+  }, [canViewIntelligence, loadDashboard, loadOrders, messages.loadError, user])
 
   const stockAlerts = dashboard?.inventory.alerts ?? []
+  const alertCount = (dashboard?.inventory.lowStockCount ?? 0) + (dashboard?.inventory.soldOutCount ?? 0)
   const revenuePoints = (trendDashboard?.revenueSeries ?? dashboard?.revenueSeries ?? [])
     .map((point, index, series) => ({
-    label: monthLabel(point.bucketStart),
+    label: monthLabel(point.bucketStart, locale),
     value: point.netRevenueCents / 100,
     display: formatCurrency(point.netRevenueCents / 100),
     highlight: index === series.length - 1,
@@ -117,9 +116,9 @@ export default function DashboardPage() {
     1
   )
   const productionBars = serviceOrderSeries.map((point, index, series) => ({
-    label: monthLabel(point.bucketStart),
+    label: monthLabel(point.bucketStart, locale),
     value: (point.completedCount / maximumCompletedOrders) * 100,
-    display: `${point.completedCount} ${point.completedCount === 1 ? "pedido concluído" : "pedidos concluídos"}`,
+    display: messages.completed(point.completedCount),
     highlight: index === series.length - 1,
   }))
   const pendingColumnIds = new Set(
@@ -144,15 +143,15 @@ export default function DashboardPage() {
   return (
     <div>
       <PageHeader
-        title="Olá, equipe D'Lara"
-        subtitle="Aqui está sua visão geral de produção e varejo para hoje."
+        title={messages.title}
+        subtitle={messages.subtitle}
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
         <div className={cn(CARD, "flex flex-col justify-between gap-6")}>
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-1">
-              <span className={CARD_LABEL}>Total Faturamento</span>
+              <span className={CARD_LABEL}>{messages.revenue}</span>
               <span className={CARD_VALUE}>
                 {formatCurrency((dashboard?.sales.netRevenueCents ?? 0) / 100)}
               </span>
@@ -162,34 +161,34 @@ export default function DashboardPage() {
           {revenuePoints.length > 0 ? (
             <MiniLine data={revenuePoints} />
           ) : (
-            <p className="text-[12px] text-(--color-text-secondary)">Sem vendas no período.</p>
+            <p className="text-[12px] text-(--color-text-secondary)">{messages.noSales}</p>
           )}
         </div>
 
         <div className={cn(CARD, "flex flex-col justify-between gap-6")}>
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-1">
-              <span className={CARD_LABEL}>Pedidos Ativos</span>
+              <span className={CARD_LABEL}>{messages.activeOrders}</span>
               <span className={CARD_VALUE}>{dashboard?.serviceOrders.openCount ?? 0}</span>
             </div>
             <span className="inline-flex items-center gap-2 rounded-full bg-border/50 px-2.5 py-1">
               <span className="size-1.5 rounded-full bg-(--color-accent)" />
-              <span className="text-[12px] font-semibold text-(--color-text-primary)">Produção</span>
+              <span className="text-[12px] font-semibold text-(--color-text-primary)">{messages.production}</span>
             </span>
           </div>
           {productionBars.length > 0 && <MiniBars data={productionBars} />}
-          <div className="flex items-center justify-between text-[14px] text-(--color-text-primary)">
-            <span>{inProductionCount} em produção</span>
-            <span>{pendingCount} {pendingCount === 1 ? "pendente" : "pendentes"}</span>
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[14px] text-(--color-text-primary)">
+            <span>{messages.inProduction(inProductionCount)}</span>
+            <span>{messages.pending(pendingCount)}</span>
           </div>
         </div>
 
         <div className={cn(CARD, "flex flex-col gap-5")}>
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-1">
-              <span className={CARD_LABEL}>Alerta de Estoque</span>
+              <span className={CARD_LABEL}>{messages.stockAlert}</span>
               <span className={CARD_VALUE}>
-                {(dashboard?.inventory.lowStockCount ?? 0) + (dashboard?.inventory.soldOutCount ?? 0)} Itens
+                {messages.stockItems(alertCount)}
               </span>
             </div>
             <TriangleAlert size={18} className="text-(--color-warning)" />
@@ -198,17 +197,17 @@ export default function DashboardPage() {
             {stockAlerts.map((product) => (
               <div key={product.productId} className="flex items-center justify-between gap-2 text-[14px]">
                 <span className="truncate text-(--color-text-primary)">{product.name}</span>
-                <span className={product.status === "sold_out" ? "text-(--color-danger)" : "text-(--color-warning)"}>
-                  {product.status === "sold_out" ? "Esgotado" : "Baixo"}
+                <span className={cn("shrink-0", product.status === "sold_out" ? "text-(--color-danger)" : "text-(--color-warning)")}>
+                  {product.status === "sold_out" ? messages.soldOut : messages.lowStock}
                 </span>
               </div>
             ))}
-            {(dashboard?.inventory.lowStockCount ?? 0) + (dashboard?.inventory.soldOutCount ?? 0) > 3 && canViewInventory && (
+            {alertCount > 3 && canViewInventory && (
               <Link
                 href="/inventario"
                 className="mt-1 text-[13px] font-medium text-(--color-accent) hover:underline"
               >
-                Ver todos os {(dashboard?.inventory.lowStockCount ?? 0) + (dashboard?.inventory.soldOutCount ?? 0)} itens
+                {messages.viewAll(alertCount)}
               </Link>
             )}
           </div>
@@ -221,17 +220,17 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
         <div className={cn(
           CARD,
-          "flex h-[32rem] max-h-[70vh] min-h-80 flex-col overflow-hidden",
+          "flex h-80 max-h-[70vh] min-h-80 flex-col overflow-hidden sm:h-[32rem]",
           canViewIntelligence ? "lg:col-span-2" : "lg:col-span-3"
         )}>
-          <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Fluxo de Produção</h2>
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <h2 className="text-[18px] font-semibold text-(--color-text-primary)">{messages.productionFlow}</h2>
             {canViewOrders && (
               <Link href="/ordens" className="text-[14px] font-semibold text-(--color-accent) hover:underline">
-                Ver Quadro
+                {messages.viewBoard}
               </Link>
             )}
           </div>
@@ -271,37 +270,37 @@ export default function DashboardPage() {
         {canViewIntelligence && (
           <div className={cn(
             CARD,
-            "flex h-[32rem] max-h-[70vh] min-h-80 flex-col overflow-hidden"
+            "flex flex-col sm:h-[32rem] sm:max-h-[70vh] sm:min-h-80 sm:overflow-hidden"
           )}>
             <div className="mb-1 flex items-center gap-2">
               <PackagePlus size={18} className="text-(--color-accent)" />
-              <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Sugestões de Reposição</h2>
+              <h2 className="text-[18px] font-semibold text-(--color-text-primary)">{messages.replenishment}</h2>
             </div>
             <p className="mb-4 text-[12px] text-(--color-text-secondary)">
-              Itens com necessidade calculada de abastecimento
+              {messages.replenishmentDescription}
             </p>
-            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-1">
+            <div className="flex min-h-0 flex-1 flex-col gap-2.5 sm:overflow-y-auto sm:pr-1">
               {replenishmentRecommendations.length === 0 ? (
-                <p className="text-[12px] text-(--color-text-secondary)">Nenhuma sugestão de reposição pendente.</p>
+                <p className="text-[12px] text-(--color-text-secondary)">{messages.emptyReplenishment}</p>
               ) : replenishmentRecommendations.map((recommendation) => {
                 const quantity = replenishmentQuantity(recommendation)
                 return (
                   <div key={recommendation.id} className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-[13px] font-medium text-(--color-text-primary)">
+                      <p className="min-w-0 wrap-anywhere text-[13px] font-medium text-(--color-text-primary)">
                         {recommendation.product.name}
                       </p>
                       <span className="shrink-0 rounded-full bg-(--color-warning)/15 px-2 py-0.5 text-[9px] font-semibold uppercase text-(--color-warning)">
-                        {quantity === null ? "Revisar" : "Repor"}
+                        {quantity === null ? messages.review : messages.restock}
                       </span>
                     </div>
                     <p className="mt-1.5 text-[11px] leading-relaxed text-(--color-text-secondary)">
                       {quantity === null
-                        ? "Revisar a reposição; a quantidade depende do histórico diário de estoque."
-                        : `Repor ${quantity} unidades.`}
+                        ? messages.reviewMessage
+                        : messages.restockMessage(quantity)}
                     </p>
                     <span className="mt-2 block text-[10px] text-(--color-text-secondary)">
-                      Confiança: {CONFIDENCE_LABEL[recommendation.confidenceLabel]}
+                      {messages.confidence}: {messages.confidenceLevels[recommendation.confidenceLabel]}
                     </span>
                   </div>
                 )
@@ -311,7 +310,7 @@ export default function DashboardPage() {
               href="/inteligencia"
               className="mt-6 flex items-center justify-center gap-2 rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-4 py-2.5 text-[14px] font-semibold text-(--color-text-primary)"
             >
-              Ver na Inteligência
+              {messages.viewIntelligence}
               <ArrowRight size={14} />
             </Link>
           </div>

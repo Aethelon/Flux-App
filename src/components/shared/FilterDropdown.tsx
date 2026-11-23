@@ -25,9 +25,9 @@ export function FilterDropdown({ label, value, options, onChange }: FilterDropdo
   const selected = options.find((o) => o.value === value)
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md bg-(--color-surface) px-3 py-1.5 text-[12px] text-(--color-text-primary) font-(family-name:--font-data) hover:bg-(--color-surface)/70 transition-colors cursor-pointer">
-        {label}: {selected?.label ?? value}
-        <ChevronDown size={12} className="text-(--color-text-secondary)" />
+      <DropdownMenuTrigger className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md bg-(--color-surface) px-3 py-1.5 text-[12px] text-(--color-text-primary) font-(family-name:--font-data) hover:bg-(--color-surface)/70 transition-colors cursor-pointer">
+        <span className="min-w-0 truncate">{label}: {selected?.label ?? value}</span>
+        <ChevronDown size={12} className="shrink-0 text-(--color-text-secondary)" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup value={value} onValueChange={onChange}>

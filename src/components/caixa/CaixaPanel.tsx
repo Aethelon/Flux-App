@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useEffectEvent, useState } from "react"
 import {
   Lock,
   Unlock,
@@ -32,6 +32,15 @@ import {
 } from "@/store/caixaStore"
 import { useUserStore } from "@/store/userStore"
 import type { CaixaSessao, MetodoPagamento, MovimentacaoTipo, MovimentacaoManual } from "@/types/caixa"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { cashMessages } from "./messages"
+
+type CashMessages = (typeof cashMessages)[keyof typeof cashMessages]
+
+function useCashMessages() {
+  const { locale } = useLocale()
+  return cashMessages[locale]
+}
 
 // Operador do turno = usuário logado (o mesmo que o layout hidrata do JWT).
 function useOperadorLogado(): string {
@@ -50,13 +59,13 @@ function formatHora(iso: string): string {
 
 function StatCard({ label, value, tone }: { label: string; value: string; tone?: "danger" | "success" }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-2xl border border-(--color-border) bg-(--color-surface) p-4">
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-2xl border border-(--color-border) bg-(--color-surface) p-3 sm:p-4">
       <span className="text-[11px] font-semibold uppercase tracking-[0.55px] text-(--color-text-secondary)">
         {label}
       </span>
       <span
         className={cn(
-          "text-[24px] font-semibold tracking-[-0.48px]",
+          "wrap-anywhere text-[18px] font-semibold tracking-[-0.48px] sm:text-[24px]",
           tone === "danger" && "text-(--color-danger)",
           tone === "success" && "text-(--color-success)",
           !tone && "text-(--color-text-primary)"
@@ -70,19 +79,20 @@ function StatCard({ label, value, tone }: { label: string; value: string; tone?:
 
 const TIPO_CONFIG: Record <
   MovimentacaoTipo | "abertura",
-  { label: string; icon: typeof ArrowDownCircle; tone: "danger" | "success" | "accent" | "neutral" }
+  { icon: typeof ArrowDownCircle; tone: "danger" | "success" | "accent" | "neutral" }
 > = {
-  abertura: { label: "Abertura", icon: Unlock, tone: "neutral" },
-  sangria: { label: "Sangria", icon: ArrowDownCircle, tone: "danger" },
-  suprimento: { label: "Suprimento", icon: ArrowUpCircle, tone: "success" },
-  venda: { label: "Venda", icon: ShoppingCart, tone: "accent" },
-  estorno: { label: "Estorno", icon: ArrowDownCircle, tone: "danger" },
-  devolucao: { label: "Devolução", icon: ArrowDownCircle, tone: "danger" },
-  ajuste: { label: "Ajuste", icon: Wallet, tone: "neutral" },
+  abertura: { icon: Unlock, tone: "neutral" },
+  sangria: { icon: ArrowDownCircle, tone: "danger" },
+  suprimento: { icon: ArrowUpCircle, tone: "success" },
+  venda: { icon: ShoppingCart, tone: "accent" },
+  estorno: { icon: ArrowDownCircle, tone: "danger" },
+  devolucao: { icon: ArrowDownCircle, tone: "danger" },
+  ajuste: { icon: Wallet, tone: "neutral" },
 }
 
 function TipoBadge({ tipo }: { tipo: MovimentacaoTipo | "abertura" }) {
-  const { label, icon: Icon, tone } = TIPO_CONFIG[tipo]
+  const messages = useCashMessages()
+  const { icon: Icon, tone } = TIPO_CONFIG[tipo]
   return (
     <span
       className={cn(
@@ -94,7 +104,7 @@ function TipoBadge({ tipo }: { tipo: MovimentacaoTipo | "abertura" }) {
       )}
     >
       <Icon size={12} />
-      {label}
+      {messages[tipo]}
     </span>
   )
 }
@@ -107,6 +117,7 @@ export function AbrirCaixaDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const messages = useCashMessages()
   const operador = useOperadorLogado()
   const abrirCaixa = useCaixaStore((s) => s.abrirCaixa)
   const [valor, setValor] = useState("0,00")
@@ -116,17 +127,17 @@ export function AbrirCaixaDialog({
     if (submitting) return
     const parsed = parsePriceInput(valor)
     if (parsed < 0) {
-      toast.error("Informe um valor de abertura válido.")
+      toast.error(messages.invalidOpening)
       return
     }
     setSubmitting(true)
     try {
       await abrirCaixa(operador, parsed)
-      toast.success(`Caixa aberto com ${formatCurrency(parsed)} de fundo de troco.`)
+      toast.success(messages.opened(formatCurrency(parsed)))
       setValor("0,00")
       onOpenChange(false)
     } catch {
-      toast.error("Não foi possível abrir o caixa.")
+      toast.error(messages.openError)
     } finally {
       setSubmitting(false)
     }
@@ -136,10 +147,10 @@ export function AbrirCaixaDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Abrir caixa</DialogTitle>
+          <DialogTitle>{messages.openRegister}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-2 py-2">
-          <Label htmlFor="valor-abertura">Valor de abertura (fundo de troco)</Label>
+          <Label htmlFor="valor-abertura">{messages.openingFloat}</Label>
           <div className="relative">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-(--color-text-secondary)">
               R$
@@ -155,15 +166,15 @@ export function AbrirCaixaDialog({
             />
           </div>
           <span className="text-[12px] text-(--color-text-secondary)">
-            Operador: {operador}
+            {messages.operator}: {operador}
           </span>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {messages.cancel}
           </Button>
           <Button onClick={handleConfirm} disabled={submitting}>
-            {submitting ? "Abrindo..." : "Abrir caixa"}
+            {submitting ? messages.opening : messages.openRegister}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -181,32 +192,33 @@ export function ResumoFechamentoDialog({
   resumo: ResumoFechamento | null
   onOpenChange: (open: boolean) => void
 }) {
+  const messages = useCashMessages()
   return (
     <Dialog open={!!resumo} onOpenChange={(open) => !open && onOpenChange(open)}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Resumo do fechamento</DialogTitle>
+          <DialogTitle>{messages.closingSummary}</DialogTitle>
         </DialogHeader>
         {resumo && (
-          <div className="flex flex-col gap-4 py-2">
+          <div className="flex min-w-0 flex-col gap-4 py-2">
             <div className="flex flex-col gap-2">
               <span className="text-[12px] font-semibold uppercase tracking-[0.4px] text-(--color-text-secondary)">
-                Conferência por método
+                {messages.byMethod}
               </span>
               <ConferenciaPorMetodoTable linhas={resumo.porMetodo} />
             </div>
 
             <div className="rounded-xl border border-(--color-border) bg-(--color-surface) p-4">
-              <div className="flex items-center justify-between text-[13px]">
-                <span className="text-(--color-text-secondary)">O que o sistema calculou</span>
+              <div className="flex flex-wrap items-center justify-between gap-x-2 text-[13px]">
+                <span className="text-(--color-text-secondary)">{messages.expectedTotal}</span>
                 <span className="font-semibold text-(--color-text-primary)">
                   {formatCurrency(resumo.sistema)}
                 </span>
               </div>
             </div>
             <div className="rounded-xl border border-(--color-border) bg-(--color-surface) p-4">
-              <div className="flex items-center justify-between text-[13px]">
-                <span className="text-(--color-text-secondary)">O que o operador informou</span>
+              <div className="flex flex-wrap items-center justify-between gap-x-2 text-[13px]">
+                <span className="text-(--color-text-secondary)">{messages.reportedTotal}</span>
                 <span className="font-semibold text-(--color-text-primary)">
                   {formatCurrency(resumo.informado)}
                 </span>
@@ -221,14 +233,14 @@ export function ResumoFechamentoDialog({
               )}
             >
               <div className="flex items-center justify-between">
-                <span>Diferença total</span>
+                <span>{messages.totalDifference}</span>
                 <span>{formatCurrency(Math.abs(resumo.diferenca))}</span>
               </div>
             </div>
           </div>
         )}
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>Fechar</Button>
+          <Button onClick={() => onOpenChange(false)}>{messages.close}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -245,41 +257,42 @@ function MovimentacaoDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const messages = useCashMessages()
   const operador = useOperadorLogado()
   const registrarMovimentacao = useCaixaStore((s) => s.registrarMovimentacao)
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
   const [valor, setValor] = useState("0,00")
   const [motivo, setMotivo] = useState("")
   const [submitting, setSubmitting] = useState(false)
-  const label = tipo === "sangria" ? "Sangria" : "Suprimento"
+  const label = messages[tipo]
 
   async function handleConfirm() {
     if (submitting) return
     const parsed = parsePriceInput(valor)
     if (parsed <= 0) {
-      toast.error("Informe um valor maior que zero.")
+      toast.error(messages.positiveValue)
       return
     }
     const dinheiroDisponivel = sessaoAtual
       ? calcularEsperadoPorMetodo(sessaoAtual).dinheiro
       : 0
     if (tipo === "sangria" && parsed > dinheiroDisponivel + 0.005) {
-      toast.error(`A sangria não pode ultrapassar ${formatCurrency(dinheiroDisponivel)}.`)
+      toast.error(messages.payoutLimit(formatCurrency(dinheiroDisponivel)))
       return
     }
     if (!motivo.trim()) {
-      toast.error("Informe o motivo.")
+      toast.error(messages.reasonRequired)
       return
     }
     setSubmitting(true)
     try {
       await registrarMovimentacao(tipo, parsed, motivo.trim(), operador)
-      toast.success(`${label} de ${formatCurrency(parsed)} registrada.`)
+      toast.success(messages.movementRecorded(label, formatCurrency(parsed)))
       setValor("0,00")
       setMotivo("")
       onOpenChange(false)
     } catch {
-      toast.error(`Não foi possível registrar a ${label.toLowerCase()}.`)
+      toast.error(messages.recordError)
     } finally {
       setSubmitting(false)
     }
@@ -293,7 +306,7 @@ function MovimentacaoDialog({
         </DialogHeader>
         <div className="flex flex-col gap-3 py-2">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="valor-mov">Valor</Label>
+            <Label htmlFor="valor-mov">{messages.amount}</Label>
             <Input
               id="valor-mov"
               inputMode="decimal"
@@ -304,37 +317,28 @@ function MovimentacaoDialog({
             />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="motivo-mov">Motivo</Label>
+            <Label htmlFor="motivo-mov">{messages.reason}</Label>
             <Input
               id="motivo-mov"
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
               placeholder={
-                tipo === "sangria" ? "Ex.: depósito bancário" : "Ex.: reforço de troco"
+                tipo === "sangria" ? messages.payoutExample : messages.depositExample
               }
             />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {messages.cancel}
           </Button>
           <Button onClick={handleConfirm} disabled={submitting}>
-            {submitting ? "Registrando..." : `Confirmar ${label.toLowerCase()}`}
+            {submitting ? messages.recording : messages.confirm}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
-}
-
-// Rótulo de exibição de cada forma de pagamento — reaproveitado no modal de
-// fechamento e no resumo de conferência por método.
-const METODO_LABEL: Record<MetodoPagamento, string> = {
-  dinheiro: "Dinheiro",
-  cartao_credito: "Cartão Crédito",
-  cartao_debito: "Cartão Débito",
-  pix: "Pix",
 }
 
 const METODOS_FECHAMENTO: MetodoPagamento[] = ["dinheiro", "cartao_credito", "cartao_debito", "pix"]
@@ -362,15 +366,16 @@ export type ResumoFechamento = {
 // reaproveitada tanto no resumo logo após o fechamento quanto na conferência
 // de uma sessão já fechada, consultada pelo histórico.
 function ConferenciaPorMetodoTable({ linhas }: { linhas: LinhaConferencia[] }) {
+  const messages = useCashMessages()
   return (
-    <div className="overflow-hidden rounded-xl border border-(--color-border)">
-      <table className="w-full text-[13px]">
+    <div className="min-w-0 overflow-x-auto rounded-xl border border-(--color-border)">
+      <table className="w-full text-[13px] whitespace-nowrap">
         <thead>
           <tr className="bg-(--color-surface-raised) text-(--color-text-secondary)">
-            <th className="px-3 py-2 text-left font-medium">Método</th>
-            <th className="px-3 py-2 text-right font-medium">Esperado</th>
-            <th className="px-3 py-2 text-right font-medium">Informado</th>
-            <th className="px-3 py-2 text-right font-medium">Diferença</th>
+            <th className="px-3 py-2 text-left font-medium">{messages.method}</th>
+            <th className="px-3 py-2 text-right font-medium">{messages.expected}</th>
+            <th className="px-3 py-2 text-right font-medium">{messages.reported}</th>
+            <th className="px-3 py-2 text-right font-medium">{messages.difference}</th>
           </tr>
         </thead>
         <tbody>
@@ -379,7 +384,7 @@ function ConferenciaPorMetodoTable({ linhas }: { linhas: LinhaConferencia[] }) {
             return (
               <tr key={linha.metodo} className="border-t border-(--color-border)">
                 <td className="px-3 py-2 text-(--color-text-primary)">
-                  {METODO_LABEL[linha.metodo]}
+                  {messages[linha.metodo]}
                 </td>
                 <td className="px-3 py-2 text-right text-(--color-text-secondary)">
                   {formatCurrency(linha.esperado)}
@@ -434,6 +439,7 @@ export function FecharCaixaDialog({
   onOpenChange: (open: boolean) => void
   onFechamentoConfirmado?: (resumo: ResumoFechamento) => void
 }) {
+  const messages = useCashMessages()
   const operador = useOperadorLogado()
   const sessao = useCaixaStore((s) => s.sessaoAtual)
   const fecharCaixa = useCaixaStore((s) => s.fecharCaixa)
@@ -484,11 +490,11 @@ export function FecharCaixaDialog({
         diferenca,
         porMetodo,
       })
-      toast.success("Caixa fechado com sucesso.")
+      toast.success(messages.closedSuccess)
       setValores({ dinheiro: "0,00", cartao_credito: "0,00", cartao_debito: "0,00", pix: "0,00" })
       onOpenChange(false)
     } catch {
-      toast.error("Não foi possível fechar o caixa.")
+      toast.error(messages.closeError)
     } finally {
       setSubmitting(false)
     }
@@ -496,25 +502,25 @@ export function FecharCaixaDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Fechar caixa</DialogTitle>
+          <DialogTitle>{messages.closeRegister}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">
           <p className="text-[13px] text-(--color-text-secondary)">
-            Informe os valores recebidos em cada método de pagamento.
+            {messages.closingInstructions}
           </p>
 
           <div className="flex flex-col gap-3">
             {METODOS_FECHAMENTO.map((metodo) => (
               <div
                 key={metodo}
-                className="flex items-center justify-between gap-3 rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-3"
+                className="flex items-center justify-between gap-2 rounded-xl border border-(--color-border) bg-(--color-surface) px-3 py-3 sm:gap-3 sm:px-4"
               >
                 <span className="text-[14px] font-medium text-(--color-text-primary)">
-                  {METODO_LABEL[metodo]}
+                  {messages[metodo]}
                 </span>
-                <div className="relative w-36">
+                <div className="relative w-1/2 max-w-36 shrink-0 sm:w-36">
                   <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-(--color-text-secondary)">
                     R$
                   </span>
@@ -534,10 +540,10 @@ export function FecharCaixaDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {messages.cancel}
           </Button>
           <Button onClick={handleConfirm} disabled={submitting}>
-            {submitting ? "Fechando..." : "Fechar caixa"}
+            {submitting ? messages.closing : messages.closeRegister}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -565,61 +571,60 @@ interface HistoricoCaixaRow {
   sessao: CaixaSessao
 }
 
-const colunasMovimentacoes: Column<MovimentoTurnoRow>[] = [
-  {
-    key: "tipo",
-    label: "Tipo",
-    render: (row) => <TipoBadge tipo={row.tipo} />,
-  },
-  {
-    key: "motivo",
-    label: "Descrição",
-    render: (row) => <span className="text-[14px] text-(--color-text-primary)">{row.motivo}</span>,
-  },
-  {
-    key: "operador",
-    label: "Operador",
-    render: (row) => <span className="text-[13px] text-(--color-text-secondary)">{row.operador}</span>,
-  },
-  {
-    key: "criadoEm",
-    label: "Hora",
-    render: (row) => <span className="text-[13px] text-(--color-text-secondary)">{formatHora(row.criadoEm)}</span>,
-  },
-  {
-    key: "valor",
-    label: "Valor",
-    className: "text-right",
-    render: (row) => (
-      <span
-        className={cn(
-          "font-semibold",
-          row.tipo === "sangria"
-            ? "text-(--color-danger)"
-            : row.tipo === "venda"
-              ? "text-(--color-accent)"
-              : row.tipo === "abertura"
-                ? "text-(--color-text-primary)"
-                : "text-(--color-success)"
-        )}
-      >
-        {row.tipo === "sangria" ? "− " : "+ "}
-        {formatCurrency(row.valor)}
-      </span>
-    ),
-  },
-]
-
-// Colunas do histórico de caixas. Fica dentro do componente (mais abaixo, via
-// função) por precisar do handler que abre a conferência por método de cada
-// sessão — não pode ser uma constante de módulo como colunasMovimentacoes.
+function criarColunasMovimentacoes(messages: CashMessages): Column<MovimentoTurnoRow>[] {
+  return [
+    {
+      key: "tipo",
+      label: messages.movementType,
+      render: (row) => <TipoBadge tipo={row.tipo} />,
+    },
+    {
+      key: "motivo",
+      label: messages.movementDescription,
+      render: (row) => <span className="text-[14px] text-(--color-text-primary)">{row.motivo}</span>,
+    },
+    {
+      key: "operador",
+      label: messages.operator,
+      render: (row) => <span className="text-[13px] text-(--color-text-secondary)">{row.operador}</span>,
+    },
+    {
+      key: "criadoEm",
+      label: messages.time,
+      render: (row) => <span className="text-[13px] text-(--color-text-secondary)">{formatHora(row.criadoEm)}</span>,
+    },
+    {
+      key: "valor",
+      label: messages.amount,
+      className: "text-right",
+      render: (row) => (
+        <span
+          className={cn(
+            "font-semibold",
+            row.tipo === "sangria"
+              ? "text-(--color-danger)"
+              : row.tipo === "venda"
+                ? "text-(--color-accent)"
+                : row.tipo === "abertura"
+                  ? "text-(--color-text-primary)"
+                  : "text-(--color-success)"
+          )}
+        >
+          {row.tipo === "sangria" ? "− " : "+ "}
+          {formatCurrency(row.valor)}
+        </span>
+      ),
+    },
+  ]
+}
 function criarColunasHistorico(
-  onVerConferencia: (sessao: CaixaSessao) => void
+  onVerConferencia: (sessao: CaixaSessao) => void,
+  messages: CashMessages
 ): Column<HistoricoCaixaRow>[] {
   return [
     {
       key: "periodo",
-      label: "Período",
+      label: messages.shift,
       render: (row) => (
         <div className="flex flex-col">
           <span className="text-[14px] text-(--color-text-primary)">{row.periodo}</span>
@@ -629,17 +634,17 @@ function criarColunasHistorico(
     },
     {
       key: "esperado",
-      label: "Esperado",
+      label: messages.expected,
       render: (row) => <span className="text-[13px] text-(--color-text-secondary)">{formatCurrency(row.esperado)}</span>,
     },
     {
       key: "contado",
-      label: "Contado",
+      label: messages.counted,
       render: (row) => <span className="text-[13px] text-(--color-text-secondary)">{formatCurrency(row.contado)}</span>,
     },
     {
       key: "diferenca",
-      label: "Saldo",
+      label: messages.balance,
       render: (row) => (
         <span
           className={cn(
@@ -649,13 +654,15 @@ function criarColunasHistorico(
               : "bg-(--color-warning)/10 text-(--color-warning)"
           )}
         >
-          {row.status === "Confere" ? "Confere" : `${row.status} ${formatCurrency(Math.abs(row.diferenca))}`}
+          {row.status === "Confere"
+            ? messages.matches
+            : `${row.status === "Sobra" ? messages.overage : messages.shortage} ${formatCurrency(Math.abs(row.diferenca))}`}
         </span>
       ),
     },
     {
       key: "conferencia",
-      label: "Conferência",
+      label: messages.reconciliation,
       className: "text-right",
       render: (row) => (
         <Button
@@ -664,7 +671,7 @@ function criarColunasHistorico(
           className="h-7 text-[12px]"
           onClick={() => onVerConferencia(row.sessao)}
         >
-          Ver por método
+          {messages.viewByMethod}
         </Button>
       ),
     },
@@ -675,6 +682,7 @@ function criarColunasHistorico(
 // e histórico de turnos fechados). É o conteúdo principal da
 // tela /caixa; o Dashboard mostra só um resumo (CaixaResumoCard) com link pra cá.
 export function CaixaPanel() {
+  const messages = useCashMessages()
   const currentUser = useUserStore((s) => s.user)
   const isAdmin = currentUser?.role === "admin"
   const sessaoAtual = useCaixaStore((s) => s.sessaoAtual)
@@ -688,11 +696,13 @@ export function CaixaPanel() {
   const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
   const [sessaoConferencia, setSessaoConferencia] = useState<CaixaSessao | null>(null)
 
+  const showLoadError = useEffectEvent(() => toast.error(messages.loadError))
+
   useEffect(() => {
-    void loadCash(isAdmin).catch(() => toast.error("Não foi possível carregar o caixa."))
+    void loadCash(isAdmin).catch(() => showLoadError())
   }, [isAdmin, loadCash])
 
-  const colunasHistorico = criarColunasHistorico(setSessaoConferencia)
+  const colunasHistorico = criarColunasHistorico(setSessaoConferencia, messages)
 
   const movimentosDaSessao = sessaoAtual ? getMovimentacoesDaSessao(sessaoAtual.id) : []
   const esperado = sessaoAtual ? calcularValorEsperado(sessaoAtual) : 0
@@ -720,7 +730,7 @@ export function CaixaPanel() {
           id: `abertura-${sessaoAtual.id}`,
           tipo: "abertura" as const,
           valor: sessaoAtual.valorAbertura,
-          motivo: "Fundo de troco inicial",
+          motivo: messages.initialFloat,
           operador: sessaoAtual.operadorAbertura,
           criadoEm: sessaoAtual.abertoEm,
         },
@@ -728,64 +738,64 @@ export function CaixaPanel() {
     : []
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-6">
+    <section className="flex min-w-0 flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-3 sm:p-6">
       <div className="flex items-center gap-2">
         <Wallet size={18} className="text-(--color-accent)" />
-        <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Caixa</h2>
+        <h2 className="text-[18px] font-semibold text-(--color-text-primary)">{messages.title}</h2>
       </div>
       <p className="-mt-3 text-[12px] text-(--color-text-secondary)">
-        Abertura, fechamento, sangria, suprimento e vendas por método.
+        {messages.description}
       </p>
 
       {!sessaoAtual ? (
-        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-(--color-border) bg-(--color-surface-raised) py-16 text-center">
+        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-(--color-border) bg-(--color-surface-raised) px-3 py-10 text-center sm:py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-(--color-accent)">
             <Wallet size={22} />
           </div>
           <div className="flex flex-col gap-1">
             <p className="text-[14px] font-medium text-(--color-text-primary)">
-              Nenhum caixa aberto no momento
+              {messages.noOpenRegister}
             </p>
             <p className="text-[12px] text-(--color-text-secondary)">
-              Abra o caixa para registrar sangrias, suprimentos e o fechamento do turno.
+              {messages.noOpenDetails}
             </p>
           </div>
           <Button onClick={() => setAbrirOpen(true)} className="gap-2">
             <Unlock size={15} />
-            Abrir caixa
+            {messages.openRegister}
           </Button>
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <StatCard label="Valor de abertura" value={formatCurrency(sessaoAtual.valorAbertura)} />
-            <StatCard label="Vendas" value={formatCurrency(vendas)} tone="success" />
-            <StatCard label="Suprimentos" value={formatCurrency(suprimentos)} tone="success" />
-            <StatCard label="Sangrias" value={formatCurrency(sangrias)} tone="danger" />
-            <StatCard label="Valor esperado" value={formatCurrency(esperado)} />
+          <div className="grid grid-cols-2 gap-2 *:last:col-span-2 sm:gap-3 lg:grid-cols-5 lg:*:last:col-span-1">
+            <StatCard label={messages.openingAmount} value={formatCurrency(sessaoAtual.valorAbertura)} />
+            <StatCard label={messages.sales} value={formatCurrency(vendas)} tone="success" />
+            <StatCard label={messages.deposits} value={formatCurrency(suprimentos)} tone="success" />
+            <StatCard label={messages.payouts} value={formatCurrency(sangrias)} tone="danger" />
+            <StatCard label={messages.expectedAmount} value={formatCurrency(esperado)} />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" className="gap-2" onClick={() => setMovDialog("sangria")}>
               <ArrowDownCircle size={15} className="text-(--color-danger)" />
-              Sangria
+              {messages.sangria}
             </Button>
             <Button variant="outline" className="gap-2" onClick={() => setMovDialog("suprimento")}>
               <ArrowUpCircle size={15} className="text-(--color-success)" />
-              Suprimento
+              {messages.suprimento}
             </Button>
             <Button className="gap-2" onClick={() => setFecharOpen(true)}>
               <Lock size={15} />
-              Fechar caixa
+              {messages.closeRegister}
             </Button>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-2xl border border-(--color-border) bg-(--color-surface-raised) p-4">
+          <div className="flex min-w-0 flex-col gap-3 rounded-2xl border border-(--color-border) bg-(--color-surface-raised) p-2.5 sm:p-4">
             <span className="text-[13px] font-semibold text-(--color-text-primary)">
-              Movimentações do turno
+              {messages.shiftMovements}
             </span>
             <DataTable
-              columns={colunasMovimentacoes}
+              columns={criarColunasMovimentacoes(messages)}
               data={linhasDoTurno.map((m) => ({
                 id: m.id,
                 tipo: m.tipo,
@@ -795,17 +805,17 @@ export function CaixaPanel() {
                 valor: m.valor,
               }))}
               keyField="id"
-              emptyMessage="Nenhuma movimentação registrada ainda."
+              emptyMessage={messages.noMovements}
             />
           </div>
         </>
       )}
 
       {isAdmin && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-(--color-border) bg-(--color-surface-raised) p-4">
+        <div className="flex min-w-0 flex-col gap-3 rounded-2xl border border-(--color-border) bg-(--color-surface-raised) p-2.5 sm:p-4">
           <span className="flex items-center gap-1.5 text-[13px] font-semibold text-(--color-text-primary)">
             <History size={15} />
-            Histórico de caixas
+            {messages.registerHistory}
           </span>
           <DataTable
             columns={colunasHistorico}
@@ -824,7 +834,7 @@ export function CaixaPanel() {
               }
             })}
             keyField="id"
-            emptyMessage="Nenhum caixa fechado até agora."
+            emptyMessage={messages.noHistory}
             className="max-h-[400px] overflow-auto"
           />
         </div>
@@ -850,12 +860,12 @@ export function CaixaPanel() {
       />
 
       <Dialog open={isAdmin && !!sessaoConferencia} onOpenChange={(open) => !open && setSessaoConferencia(null)}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Conferência do caixa</DialogTitle>
+            <DialogTitle>{messages.registerReconciliation}</DialogTitle>
           </DialogHeader>
           {sessaoConferencia && (
-            <div className="flex flex-col gap-4 py-2">
+            <div className="flex min-w-0 flex-col gap-4 py-2">
               <span className="text-[13px] text-(--color-text-secondary)">
                 {formatHora(sessaoConferencia.abertoEm)} —{" "}
                 {sessaoConferencia.fechadoEm ? formatHora(sessaoConferencia.fechadoEm) : "—"} ·{" "}
@@ -867,15 +877,14 @@ export function CaixaPanel() {
                 if (!linhas) {
                   return (
                     <div className="rounded-xl border border-dashed border-(--color-border) bg-(--color-surface-raised) p-4 text-[13px] text-(--color-text-secondary)">
-                      Este caixa foi fechado antes da conferência por método existir — só o total
-                      geral está disponível para esta sessão.
+                      {messages.legacyRegister}
                     </div>
                   )
                 }
                 return (
                   <div className="flex flex-col gap-2">
                     <span className="text-[12px] font-semibold uppercase tracking-[0.4px] text-(--color-text-secondary)">
-                      Conferência por método
+                      {messages.byMethod}
                     </span>
                     <ConferenciaPorMetodoTable linhas={linhas} />
                   </div>
@@ -883,16 +892,16 @@ export function CaixaPanel() {
               })()}
 
               <div className="rounded-xl border border-(--color-border) bg-(--color-surface) p-4">
-                <div className="flex items-center justify-between text-[13px]">
-                  <span className="text-(--color-text-secondary)">O que o sistema calculou</span>
+                <div className="flex flex-wrap items-center justify-between gap-x-2 text-[13px]">
+                  <span className="text-(--color-text-secondary)">{messages.expectedTotal}</span>
                   <span className="font-semibold text-(--color-text-primary)">
                     {formatCurrency(calcularValorEsperado(sessaoConferencia))}
                   </span>
                 </div>
               </div>
               <div className="rounded-xl border border-(--color-border) bg-(--color-surface) p-4">
-                <div className="flex items-center justify-between text-[13px]">
-                  <span className="text-(--color-text-secondary)">O que o operador informou</span>
+                <div className="flex flex-wrap items-center justify-between gap-x-2 text-[13px]">
+                  <span className="text-(--color-text-secondary)">{messages.reportedTotal}</span>
                   <span className="font-semibold text-(--color-text-primary)">
                     {formatCurrency(sessaoConferencia.valorContado ?? 0)}
                   </span>
@@ -907,14 +916,14 @@ export function CaixaPanel() {
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <span>Diferença total</span>
+                  <span>{messages.totalDifference}</span>
                   <span>{formatCurrency(Math.abs(calcularDiferenca(sessaoConferencia)))}</span>
                 </div>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button onClick={() => setSessaoConferencia(null)}>Fechar</Button>
+            <Button onClick={() => setSessaoConferencia(null)}>{messages.close}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

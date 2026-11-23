@@ -17,9 +17,21 @@ import { useUserStore } from "@/store/userStore"
 import { useProductsStore } from "@/store/productsStore"
 import { useOrdersStore } from "@/store/ordersStore"
 import { useHistoryStore } from "@/store/historyStore"
+import { useLocale } from "../LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
+
+const groupLabels = {
+  Produtos: "products",
+  Clientes: "customers",
+  "Ordens de Serviço": "orders",
+  Compras: "purchases",
+  Páginas: "pages",
+} as const
 
 export function SearchBar() {
   const router = useRouter()
+  const { locale } = useLocale()
+  const copy = interfaceCopy[locale]
   const clients = useClientsStore((s) => s.clients)
   const loadClients = useClientsStore((s) => s.loadClients)
   const products = useProductsStore((s) => s.products)
@@ -40,10 +52,10 @@ export function SearchBar() {
   const groups = useMemo(
     () =>
       searchItems(
-        buildSearchIndex(clients, products, orders, columns, history).filter((item) => canAccessRoute(user?.role ?? "funcionario", item.href, user?.permissions)),
+        buildSearchIndex(clients, products, orders, columns, history, locale).filter((item) => canAccessRoute(user?.role ?? "funcionario", item.href, user?.permissions)),
         query
       ),
-    [clients, columns, history, orders, products, query, user]
+    [clients, columns, history, locale, orders, products, query, user]
   )
   const showResults = open && query.trim().length > 0
 
@@ -110,7 +122,7 @@ export function SearchBar() {
       shouldFilter={false}
       // size-auto anula o size-full do Command: a altura vem da barra, que o
       // header então centraliza (senão ela gruda no topo).
-      className="relative size-auto flex-1 max-w-160 overflow-visible bg-transparent p-0"
+      className="relative size-auto min-w-0 flex-1 max-w-160 overflow-visible bg-transparent p-0"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           setOpen(false)
@@ -119,7 +131,7 @@ export function SearchBar() {
       }}
     >
       <div
-        className="flex items-center gap-3 h-12.5 px-4 rounded-xl
+        className="flex items-center gap-2 h-11 px-3 rounded-xl lg:h-12.5 lg:gap-3 lg:px-4
           bg-(--color-surface) transition-colors
           focus-within:bg-(--color-surface-raised) hover:bg-(--color-surface-raised)"
       >
@@ -135,13 +147,14 @@ export function SearchBar() {
             setOpen(true)
             ensureSearchData()
           }}
-          placeholder="Pesquisar produtos, clientes, ordens..."
-          className="w-full bg-transparent outline-none
-            text-(--color-text-primary) text-[14px] font-semibold
+          placeholder={copy.search}
+          aria-label={copy.search}
+          className="min-w-0 flex-1 bg-transparent outline-none
+            text-(--color-text-primary) text-base font-semibold lg:text-[14px]
             font-(family-name:--font-ui)
             placeholder:text-(--color-text-secondary)"
         />
-        <span className="shrink-0 text-[11px] text-(--color-text-secondary) opacity-60">
+        <span className="hidden shrink-0 text-[11px] text-(--color-text-secondary) opacity-60 lg:inline">
           ⌘K
         </span>
       </div>
@@ -152,14 +165,14 @@ export function SearchBar() {
             rounded-xl border border-(--color-border)
             bg-(--color-surface-raised) shadow-lg"
         >
-          <CommandList className="max-h-96 p-1">
+          <CommandList className="max-h-[min(24rem,calc(100dvh-8rem))] p-1">
             {groups.length === 0 ? (
               <p className="py-6 text-center text-[13px] text-(--color-text-secondary)">
-                Nenhum resultado para “{query}”.
+                {copy.noResults} “{query}”.
               </p>
             ) : (
               groups.map((group) => (
-                <CommandGroup key={group.group} heading={group.group}>
+                <CommandGroup key={group.group} heading={copy[groupLabels[group.group]]}>
                   {group.items.map((item) => (
                     <CommandItem
                       key={item.id}
@@ -173,7 +186,7 @@ export function SearchBar() {
                       />
                       <span className="truncate">{item.label}</span>
                       {item.description && (
-                        <span className="ml-auto shrink-0 pl-3 text-xs text-(--color-text-secondary)">
+                        <span className="ml-auto hidden max-w-[50%] truncate pl-3 text-xs text-(--color-text-secondary) sm:block">
                           {item.description}
                         </span>
                       )}

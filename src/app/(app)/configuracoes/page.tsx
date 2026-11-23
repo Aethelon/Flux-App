@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState, useSyncExternalStore } from "react"
+import { useEffect, useEffectEvent, useState, useSyncExternalStore } from "react"
 import { useThemeTransition } from "@/lib/useThemeTransition"
 import { Plus, Pencil, Trash2, TriangleAlert, Check, Sparkles } from "lucide-react"
 import { toast } from "sonner"
+import { useLocale } from "@/components/layout/LocaleProvider"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -13,6 +14,8 @@ import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import { api, idempotencyHeaders } from "@/lib/api"
+import { isLocale, LOCALE_OPTIONS } from "@/lib/locale"
+import { settingsMessages } from "@/lib/settings-messages"
 import {
   Select,
   SelectTrigger,
@@ -46,31 +49,39 @@ import { useJobRolesStore } from "@/store/jobRolesStore"
 import type { Unit, Category } from "@/types/settings"
 import type { JobRole } from "@/types/job-role"
 
+function useSettingsMessages() {
+  const { locale } = useLocale()
+  return settingsMessages[locale]
+}
+
 export default function ConfiguracoesPage() {
+  const messages = useSettingsMessages()
   const [tab, setTab] = useState("unidades")
   const loadCategories = useCategoriesStore((state) => state.loadCategories)
   const loadUnits = useUnitsStore((state) => state.loadUnits)
   const isAdmin = useUserStore((state) => state.user?.role === "admin")
   const loadJobRoles = useJobRolesStore((state) => state.load)
+  const showLoadError = useEffectEvent(() => toast.error(messages.loadError))
 
   useEffect(() => {
     void Promise.all([loadCategories(), loadUnits(), ...(isAdmin ? [loadJobRoles()] : [])])
-      .catch(() => toast.error("Não foi possível carregar as configurações."))
+      .catch(() => showLoadError())
   }, [isAdmin, loadCategories, loadJobRoles, loadUnits])
 
   return (
     <div>
       <PageHeader
-        title="Configurações"
-        subtitle="Unidades, categorias, atributos do sistema"
+        title={messages.title}
+        subtitle={messages.subtitle}
+        className="max-sm:mb-5 max-sm:flex-col max-sm:items-start max-sm:[&>h1]:text-[32px] max-sm:[&>div]:ml-0 max-sm:[&_p]:text-left max-sm:[&_p]:text-sm"
       />
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="bg-(--color-surface) mb-6">
-          <TabsTrigger value="unidades">Unidades de Medida</TabsTrigger>
-          <TabsTrigger value="categorias">Categorias</TabsTrigger>
-          {isAdmin && <TabsTrigger value="cargos">Cargos</TabsTrigger>}
-          <TabsTrigger value="preferencias">Preferências</TabsTrigger>
+        <TabsList aria-label={messages.title} className="mb-4 bg-(--color-surface) sm:mb-6 max-sm:grid max-sm:w-full max-sm:grid-cols-2 max-sm:group-data-horizontal/tabs:h-auto max-sm:[&>button]:min-h-10 max-sm:[&>button]:whitespace-normal">
+          <TabsTrigger value="unidades">{messages.tabs.units}</TabsTrigger>
+          <TabsTrigger value="categorias">{messages.tabs.categories}</TabsTrigger>
+          {isAdmin && <TabsTrigger value="cargos">{messages.tabs.roles}</TabsTrigger>}
+          <TabsTrigger value="preferencias">{messages.tabs.preferences}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="unidades">
@@ -91,11 +102,13 @@ export default function ConfiguracoesPage() {
 function SettingsListCard({
   title,
   emptyMessage,
+  addLabel,
   onAdd,
   children,
 }: {
   title: string
   emptyMessage: string
+  addLabel: string
   onAdd: () => void
   children: React.ReactNode
 }) {
@@ -103,16 +116,16 @@ function SettingsListCard({
 
   return (
     <div className="rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-4 bg-(--color-surface-raised) border-b border-(--color-border)">
+      <div className="flex items-center justify-between gap-3 px-4 py-4 bg-(--color-surface-raised) border-b border-(--color-border) sm:px-5">
         <h2 className="text-[18px] font-medium text-(--color-text-primary) font-(family-name:--font-ui)">
           {title}
         </h2>
-        <Button size="icon" className="bg-(--color-accent) text-white" onClick={onAdd}>
+        <Button size="icon" className="shrink-0 bg-(--color-accent) text-white" aria-label={addLabel} onClick={onAdd}>
           <Plus size={16} />
         </Button>
       </div>
       {isEmpty ? (
-        <div className="text-center py-12 text-[14px] text-(--color-text-secondary) font-(family-name:--font-data)">
+        <div className="px-4 py-12 text-center text-[14px] text-(--color-text-secondary) font-(family-name:--font-data)">
           {emptyMessage}
         </div>
       ) : (
@@ -133,9 +146,10 @@ function SettingsListRow({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const { actions } = useSettingsMessages()
   return (
-    <div className="flex items-center justify-between px-5 py-3.5 border-b border-(--color-border) last:border-b-0 hover:bg-(--color-surface-raised)/50 transition-colors">
-      <div className="flex flex-col font-(family-name:--font-data)">
+    <div className="flex items-center justify-between gap-3 px-4 py-3.5 border-b border-(--color-border) last:border-b-0 hover:bg-(--color-surface-raised)/50 transition-colors sm:px-5">
+      <div className="flex min-w-0 flex-col wrap-anywhere font-(family-name:--font-data)">
         <span className="text-[13px] font-medium text-(--color-text-primary) tracking-[-0.143px]">
           {primary}
         </span>
@@ -145,18 +159,22 @@ function SettingsListRow({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <button
+          type="button"
           onClick={onEdit}
-          className="p-1.5 rounded hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-          title="Editar"
+          className="rounded p-2 hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors sm:p-1.5"
+          aria-label={actions.edit}
+          title={actions.edit}
         >
           <Pencil size={14} />
         </button>
         <button
+          type="button"
           onClick={onDelete}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-(--color-danger)/90 hover:bg-(--color-danger) text-white text-[13px] font-medium transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-2 rounded-md bg-(--color-danger)/90 hover:bg-(--color-danger) text-white text-[13px] font-medium transition-colors sm:py-1"
+          aria-label={actions.delete}
         >
           <Trash2 size={13} />
-          Excluir
+          <span className="hidden sm:inline">{actions.delete}</span>
         </button>
       </div>
     </div>
@@ -166,6 +184,7 @@ function SettingsListRow({
 // As unidades vêm da API por um store compartilhado — o Inventário
 // consome a mesma lista, então cadastrar aqui reflete lá.
 function UnitsPanel() {
+  const { actions, units: messages } = useSettingsMessages()
   const units = useUnitsStore((s) => s.units)
   const addUnit = useUnitsStore((s) => s.addUnit)
   const updateUnit = useUnitsStore((s) => s.updateUnit)
@@ -215,9 +234,9 @@ function UnitsPanel() {
     try {
       await addUnit(form)
       setAddOpen(false)
-      toast.success("Unidade adicionada com sucesso.")
+      toast.success(messages.added)
     } catch {
-      toast.error("Não foi possível adicionar a unidade.")
+      toast.error(messages.addError)
     } finally {
       setSubmitting(false)
     }
@@ -229,9 +248,9 @@ function UnitsPanel() {
     try {
       await updateUnit(selected.id, form)
       setEditOpen(false)
-      toast.success("Unidade atualizada.")
+      toast.success(messages.updated)
     } catch {
-      toast.error("Não foi possível atualizar a unidade.")
+      toast.error(messages.updateError)
     } finally {
       setSubmitting(false)
     }
@@ -243,10 +262,10 @@ function UnitsPanel() {
     try {
       await removeUnit(selected.id)
       setDeleteOpen(false)
-      toast.success(`${selected.name} foi removida.`)
+      toast.success(messages.removed(selected.name))
       setSelected(null)
     } catch {
-      toast.error("Não foi possível remover a unidade.")
+      toast.error(messages.removeError)
     } finally {
       setSubmitting(false)
     }
@@ -254,15 +273,15 @@ function UnitsPanel() {
 
   return (
     <>
-      <SettingsListCard title="Unidades" emptyMessage="Nenhuma unidade cadastrada." onAdd={openAdd}>
+      <SettingsListCard title={messages.title} emptyMessage={messages.empty} addLabel={messages.add} onAdd={openAdd}>
         {units.map((unit) => (
           <SettingsListRow
             key={unit.id}
             primary={unit.name}
             secondary={`${unit.abbreviation} · ${
               unit.allowsFractional
-                ? `até ${unit.quantityScale} ${unit.quantityScale === 1 ? "casa decimal" : "casas decimais"}`
-                : "quantidades inteiras"
+                ? messages.upToDecimals(messages.decimals(unit.quantityScale))
+                : messages.integer
             }`}
             onEdit={() => openEdit(unit)}
             onDelete={() => openDelete(unit)}
@@ -271,66 +290,66 @@ function UnitsPanel() {
       </SettingsListCard>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Nova Unidade</DialogTitle>
+            <DialogTitle>{messages.add}</DialogTitle>
           </DialogHeader>
           <UnitFormFields form={form} onChange={setForm} />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Cancelar
+              {actions.cancel}
             </Button>
             <Button
               onClick={handleAdd}
               disabled={!form.name || !form.abbreviation || submitting}
               className="bg-(--color-accent) text-white"
             >
-              Salvar
+              {actions.save}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Editar Unidade</DialogTitle>
+            <DialogTitle>{messages.edit}</DialogTitle>
           </DialogHeader>
           <UnitFormFields form={form} onChange={setForm} />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancelar
+              {actions.cancel}
             </Button>
             <Button
               onClick={handleEdit}
               disabled={!form.name || !form.abbreviation || submitting}
               className="bg-(--color-accent) text-white"
             >
-              Salvar Alterações
+              {actions.saveChanges}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent size="sm">
+        <AlertDialogContent size="sm" className="w-[calc(100%-2rem)]">
           <AlertDialogHeader>
             <AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)">
               <TriangleAlert size={20} />
             </AlertDialogMedia>
-            <AlertDialogTitle>Remover unidade?</AlertDialogTitle>
+            <AlertDialogTitle>{messages.removeTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              {selected?.name} será arquivada e deixará de aparecer nas operações ativas.
+              {selected && messages.removeDescription(selected.name)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDeleteOpen(false)}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setDeleteOpen(false)}>{actions.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Arquivar
+              {actions.archive}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -356,31 +375,33 @@ function UnitFormFields({
     quantityScale: number
   }) => void
 }) {
+  const { preferences, units: messages } = useSettingsMessages()
+  const decimalOptions = [1, 2, 3].map((count) => ({ value: String(count), label: messages.decimals(count) }))
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="unit-name">Nome</Label>
+        <Label htmlFor="unit-name">{preferences.name}</Label>
         <Input
           id="unit-name"
-          placeholder="Ex: Quilograma"
+          placeholder={messages.nameExample}
           value={form.name}
           onChange={(e) => onChange({ ...form, name: e.target.value })}
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="unit-abbreviation">Abreviação</Label>
+        <Label htmlFor="unit-abbreviation">{messages.abbreviation}</Label>
         <Input
           id="unit-abbreviation"
-          placeholder="Ex: kg"
+          placeholder={messages.abbreviationExample}
           value={form.abbreviation}
           onChange={(e) => onChange({ ...form, abbreviation: e.target.value })}
         />
       </div>
       <div className="flex items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <Label htmlFor="unit-fractional">Aceita quantidades fracionárias</Label>
+          <Label htmlFor="unit-fractional">{messages.fractional}</Label>
           <span className="text-[12px] text-(--color-text-secondary)">
-            Use para unidades como kg, m ou L.
+            {messages.fractionalDescription}
           </span>
         </div>
         <Switch
@@ -395,18 +416,19 @@ function UnitFormFields({
       </div>
       {form.allowsFractional && (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="unit-scale">Casas decimais</Label>
+          <Label htmlFor="unit-scale">{messages.decimalPlaces}</Label>
           <Select
             value={String(form.quantityScale)}
+            items={decimalOptions}
             onValueChange={(value) => onChange({ ...form, quantityScale: Number(value) })}
           >
             <SelectTrigger id="unit-scale" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="1">1 casa decimal</SelectItem>
-              <SelectItem value="2">2 casas decimais</SelectItem>
-              <SelectItem value="3">3 casas decimais</SelectItem>
+              {decimalOptions.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>{label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -418,6 +440,7 @@ function UnitFormFields({
 // As categorias vêm da API por um store compartilhado — o Inventário
 // consome a mesma lista, então cadastrar aqui reflete lá.
 function CategoriesPanel() {
+  const { actions, categories: messages, preferences } = useSettingsMessages()
   const categories = useCategoriesStore((s) => s.categories)
   const addCategory = useCategoriesStore((s) => s.addCategory)
   const updateCategory = useCategoriesStore((s) => s.updateCategory)
@@ -452,9 +475,9 @@ function CategoriesPanel() {
     try {
       await addCategory(name)
       setAddOpen(false)
-      toast.success("Categoria adicionada com sucesso.")
+      toast.success(messages.added)
     } catch {
-      toast.error("Não foi possível adicionar a categoria.")
+      toast.error(messages.addError)
     } finally {
       setSubmitting(false)
     }
@@ -466,9 +489,9 @@ function CategoriesPanel() {
     try {
       await updateCategory(selected.id, name)
       setEditOpen(false)
-      toast.success("Categoria atualizada.")
+      toast.success(messages.updated)
     } catch {
-      toast.error("Não foi possível atualizar a categoria.")
+      toast.error(messages.updateError)
     } finally {
       setSubmitting(false)
     }
@@ -480,10 +503,10 @@ function CategoriesPanel() {
     try {
       await removeCategory(selected.id)
       setDeleteOpen(false)
-      toast.success(`${selected.name} foi removida.`)
+      toast.success(messages.removed(selected.name))
       setSelected(null)
     } catch {
-      toast.error("Não foi possível remover a categoria.")
+      toast.error(messages.removeError)
     } finally {
       setSubmitting(false)
     }
@@ -491,7 +514,7 @@ function CategoriesPanel() {
 
   return (
     <>
-      <SettingsListCard title="Categorias" emptyMessage="Nenhuma categoria cadastrada." onAdd={openAdd}>
+      <SettingsListCard title={messages.title} emptyMessage={messages.empty} addLabel={messages.add} onAdd={openAdd}>
         {categories.map((category) => (
           <SettingsListRow
             key={category.id}
@@ -503,74 +526,74 @@ function CategoriesPanel() {
       </SettingsListCard>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Nova Categoria</DialogTitle>
+            <DialogTitle>{messages.add}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-1.5 py-2">
-            <Label htmlFor="category-name">Nome</Label>
+            <Label htmlFor="category-name">{preferences.name}</Label>
             <Input
               id="category-name"
-              placeholder="Ex: Embalagem"
+              placeholder={messages.nameExample}
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </div>
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Cancelar
+              {actions.cancel}
             </Button>
             <Button onClick={handleAdd} disabled={!name || submitting} className="bg-(--color-accent) text-white">
-              Salvar
+              {actions.save}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Editar Categoria</DialogTitle>
+            <DialogTitle>{messages.edit}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-1.5 py-2">
-            <Label htmlFor="category-edit-name">Nome</Label>
+            <Label htmlFor="category-edit-name">{preferences.name}</Label>
             <Input
               id="category-edit-name"
-              placeholder="Ex: Embalagem"
+              placeholder={messages.nameExample}
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </div>
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancelar
+              {actions.cancel}
             </Button>
             <Button onClick={handleEdit} disabled={!name || submitting} className="bg-(--color-accent) text-white">
-              Salvar Alterações
+              {actions.saveChanges}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent size="sm">
+        <AlertDialogContent size="sm" className="w-[calc(100%-2rem)]">
           <AlertDialogHeader>
             <AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)">
               <TriangleAlert size={20} />
             </AlertDialogMedia>
-            <AlertDialogTitle>Remover categoria?</AlertDialogTitle>
+            <AlertDialogTitle>{messages.removeTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              {selected?.name} será arquivada e deixará de aparecer nas operações ativas.
+              {selected && messages.removeDescription(selected.name)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDeleteOpen(false)}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setDeleteOpen(false)}>{actions.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Arquivar
+              {actions.archive}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -580,6 +603,7 @@ function CategoriesPanel() {
 }
 
 function JobRolesPanel() {
+  const { actions, roles: messages, preferences } = useSettingsMessages()
   const roles = useJobRolesStore((state) => state.roles)
   const permissions = useJobRolesStore((state) => state.permissions)
   const createRole = useJobRolesStore((state) => state.createRole)
@@ -608,78 +632,185 @@ function JobRolesPanel() {
       if (selected) await updateRole(selected, form)
       else await createRole({ name: form.name, description: form.description, permissions: form.permissions })
       setDialogOpen(false)
-      toast.success(selected ? "Cargo atualizado." : "Cargo criado.")
-    } catch { toast.error("Não foi possível salvar o cargo.") } finally { setSubmitting(false) }
+      toast.success(selected ? messages.updated : messages.created)
+    } catch {
+      toast.error(messages.saveError)
+    } finally {
+      setSubmitting(false)
+    }
   }
   async function remove() {
     if (!selected || submitting) return
     setSubmitting(true)
-    try { await removeRole(selected); setDeleteOpen(false); toast.success("Cargo removido.") }
-    catch { toast.error("Não foi possível remover o cargo. Verifique se ele está em uso.") }
-    finally { setSubmitting(false) }
+    try {
+      await removeRole(selected)
+      setDeleteOpen(false)
+      toast.success(messages.removed)
+    } catch {
+      toast.error(messages.removeError)
+    } finally {
+      setSubmitting(false)
+    }
   }
   const groups = [...new Set(permissions.map((permission) => permission.group))]
   const protectedAdministrator = selected?.systemKey === "administrator"
+  const screenLabels: Partial<Record<string, string>> = messages.permissions
+  const builtinRoles = { administrator: preferences.administrator, operator: preferences.operator }
 
   return <>
     <div className="rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-4 bg-(--color-surface-raised) border-b border-(--color-border)">
-        <div><h2 className="text-[18px] font-medium text-(--color-text-primary)">Cargos e telas disponíveis</h2><p className="text-[12px] text-(--color-text-secondary)">Escolha quais telas os funcionários deste cargo podem acessar.</p></div>
-        <Button size="sm" className="gap-2 bg-(--color-accent) text-white" onClick={openAdd}><Plus size={14} />Novo Cargo</Button>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 bg-(--color-surface-raised) border-b border-(--color-border) sm:px-5">
+        <div>
+          <h2 className="text-[18px] font-medium text-(--color-text-primary)">{messages.title}</h2>
+          <p className="text-[12px] text-(--color-text-secondary)">{messages.subtitle}</p>
+        </div>
+        <Button size="sm" className="gap-2 bg-(--color-accent) text-white" onClick={openAdd}>
+          <Plus size={14} />{messages.add}
+        </Button>
       </div>
-      {roles.map((role) => <div key={role.id} className="flex items-center justify-between gap-4 px-5 py-4 border-b border-(--color-border) last:border-0">
-        <div className="min-w-0"><div className="flex items-center gap-2"><span className="text-[14px] font-medium">{role.name}</span>{role.systemKey && <span className="rounded-full bg-(--color-accent)/10 px-2 py-0.5 text-[10px] text-(--color-accent)">Sistema</span>}{role.status === "inactive" && <span className="text-[11px] text-(--color-danger)">Inativo</span>}</div><p className="text-[12px] text-(--color-text-secondary)">{role.employeeCount} funcionário(s) · {role.permissions.length} tela(s)</p></div>
-        <div className="flex gap-1">{role.systemKey !== "administrator" && <button onClick={() => openEdit(role)} className="p-2 text-(--color-text-secondary) hover:text-(--color-text-primary)" title="Editar"><Pencil size={15} /></button>}{!role.systemKey && <button onClick={() => { setSelected(role); setDeleteOpen(true) }} className="p-2 text-(--color-danger)" title="Remover"><Trash2 size={15} /></button>}</div>
-      </div>)}
+      {roles.map((role) => (
+        <div key={role.id} className="flex items-center justify-between gap-3 px-4 py-4 border-b border-(--color-border) last:border-0 sm:px-5">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="wrap-anywhere text-[14px] font-medium">{role.systemKey ? builtinRoles[role.systemKey] : role.name}</span>
+              {role.systemKey && <span className="rounded-full bg-(--color-accent)/10 px-2 py-0.5 text-[10px] text-(--color-accent)">{messages.system}</span>}
+              {role.status === "inactive" && <span className="text-[11px] text-(--color-danger)">{messages.inactive}</span>}
+            </div>
+            <p className="text-[12px] text-(--color-text-secondary)">{messages.counts(role.employeeCount, role.permissions.length)}</p>
+          </div>
+          <div className="flex shrink-0 gap-1">
+            {role.systemKey !== "administrator" && (
+              <button type="button" onClick={() => openEdit(role)} className="p-2 text-(--color-text-secondary) hover:text-(--color-text-primary)" aria-label={actions.edit} title={actions.edit}>
+                <Pencil size={15} />
+              </button>
+            )}
+            {!role.systemKey && (
+              <button type="button" onClick={() => { setSelected(role); setDeleteOpen(true) }} className="p-2 text-(--color-danger)" aria-label={actions.remove} title={actions.remove}>
+                <Trash2 size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
 
-    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>{selected ? "Editar Cargo" : "Novo Cargo"}</DialogTitle></DialogHeader>
-      <div className="flex flex-col gap-4 py-2"><div className="flex flex-col gap-1.5"><Label htmlFor="job-role-name">Nome</Label><Input id="job-role-name" value={form.name} disabled={Boolean(selected?.systemKey)} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex: Gerente" /></div><div className="flex flex-col gap-1.5"><Label htmlFor="job-role-description">Descrição</Label><Input id="job-role-description" value={form.description} disabled={protectedAdministrator} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
-        {selected && !selected.systemKey && <div className="flex items-center justify-between"><div><Label>Status</Label><p className="text-[12px] text-(--color-text-secondary)">Cargos inativos não podem ser atribuídos.</p></div><Switch checked={form.status === "active"} onCheckedChange={(checked) => setForm({ ...form, status: checked ? "active" : "inactive" })} /></div>}
-        <div className="border-t border-(--color-border) pt-4"><h3 className="text-[14px] font-medium">Telas disponíveis</h3>{groups.map((group) => <div key={group} className="mt-4"><p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">{group}</p><div className="flex flex-col gap-3">{permissions.filter((permission) => permission.group === group).map((permission) => <label key={permission.key} className="flex items-center justify-between gap-4"><span className="text-[13px]">{permission.label}</span><Switch disabled={protectedAdministrator} checked={protectedAdministrator || form.permissions.includes(permission.key)} onCheckedChange={(checked) => setForm({ ...form, permissions: checked ? [...form.permissions, permission.key] : form.permissions.filter((key) => key !== permission.key) })} /></label>)}</div></div>)}</div>
-      </div><DialogFooter showCloseButton={false}><Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>{!protectedAdministrator && <Button disabled={submitting || !form.name.trim()} onClick={save} className="bg-(--color-accent) text-white">Salvar</Button>}</DialogFooter></DialogContent></Dialog>
-    <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}><AlertDialogContent size="sm"><AlertDialogHeader><AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)"><TriangleAlert size={20} /></AlertDialogMedia><AlertDialogTitle>Remover cargo?</AlertDialogTitle><AlertDialogDescription>O cargo {selected?.name} será removido. Isso só é permitido se nenhum funcionário estiver associado.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={remove} disabled={submitting} className="bg-(--color-danger) text-white">Remover</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{selected ? messages.edit : messages.add}</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="job-role-name">{preferences.name}</Label>
+            <Input
+              id="job-role-name"
+              value={selected?.systemKey ? builtinRoles[selected.systemKey] : form.name}
+              disabled={Boolean(selected?.systemKey)}
+              onChange={(event) => setForm({ ...form, name: event.target.value })}
+              placeholder={messages.nameExample}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="job-role-description">{messages.description}</Label>
+            <Input id="job-role-description" value={form.description} disabled={protectedAdministrator} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+          </div>
+          {selected && !selected.systemKey && (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label htmlFor="job-role-status">{messages.status}</Label>
+                <p className="text-[12px] text-(--color-text-secondary)">{messages.inactiveDescription}</p>
+              </div>
+              <Switch id="job-role-status" checked={form.status === "active"} onCheckedChange={(checked) => setForm({ ...form, status: checked ? "active" : "inactive" })} />
+            </div>
+          )}
+          <div className="border-t border-(--color-border) pt-4">
+            <h3 className="text-[14px] font-medium">{messages.availableScreens}</h3>
+            {groups.map((group) => (
+              <div key={group} className="mt-4">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">{group === "Telas" ? messages.screensGroup : group}</p>
+                <div className="flex flex-col gap-3">
+                  {permissions.filter((permission) => permission.group === group).map((permission) => (
+                    <label key={permission.key} className="flex items-center justify-between gap-4">
+                      <span className="text-[13px]">{screenLabels[permission.key] ?? permission.label}</span>
+                      <Switch
+                        disabled={protectedAdministrator}
+                        checked={protectedAdministrator || form.permissions.includes(permission.key)}
+                        onCheckedChange={(checked) => setForm({
+                          ...form,
+                          permissions: checked ? [...form.permissions, permission.key] : form.permissions.filter((key) => key !== permission.key),
+                        })}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setDialogOpen(false)}>{actions.cancel}</Button>
+          {!protectedAdministrator && <Button disabled={submitting || !form.name.trim()} onClick={save} className="bg-(--color-accent) text-white">{actions.save}</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <AlertDialogContent size="sm" className="w-[calc(100%-2rem)]">
+        <AlertDialogHeader>
+          <AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)"><TriangleAlert size={20} /></AlertDialogMedia>
+          <AlertDialogTitle>{messages.removeTitle}</AlertDialogTitle>
+          <AlertDialogDescription>{selected && messages.removeDescription(selected.name)}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{actions.cancel}</AlertDialogCancel>
+          <AlertDialogAction onClick={remove} disabled={submitting} className="bg-(--color-danger) text-white">{actions.remove}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </>
 }
 
 function PreferencesPanel() {
+  const { preferences: messages } = useSettingsMessages()
   const user = useUserStore((s) => s.user)
   const isAdmin = user?.role === "admin"
+  const jobRole = user?.jobRole
+  const builtinRoles = { administrator: messages.administrator, operator: messages.operator }
+  const roleName = jobRole?.systemKey ? builtinRoles[jobRole.systemKey] : jobRole?.name ?? (isAdmin ? messages.administrator : messages.operator)
 
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden">
-        <div className="px-5 py-4 bg-(--color-surface-raised) border-b border-(--color-border)">
+        <div className="px-4 py-4 bg-(--color-surface-raised) border-b border-(--color-border) sm:px-5">
           <h2 className="text-[18px] font-medium text-(--color-text-primary) font-(family-name:--font-ui)">
-            Meu Perfil
+            {messages.profile}
           </h2>
         </div>
 
-        <div className="flex items-center gap-4 p-5">
-          <Avatar className="size-14">
+        <div className="flex items-start gap-4 p-4 sm:items-center sm:p-5">
+          <Avatar className="size-11 shrink-0 sm:size-14">
             <AvatarFallback className="bg-(--color-surface-raised) text-(--color-text-primary)">
               {user?.name?.slice(0, 2).toUpperCase() ?? "US"}
             </AvatarFallback>
           </Avatar>
-          <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 wrap-anywhere md:grid-cols-3">
             <div className="flex flex-col gap-1">
-              <span className="text-[12px] text-(--color-text-secondary)">Nome</span>
+              <span className="text-[12px] text-(--color-text-secondary)">{messages.name}</span>
               <span className="text-[14px] text-(--color-text-primary)">{user?.name ?? "—"}</span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-[12px] text-(--color-text-secondary)">E-mail</span>
+              <span className="text-[12px] text-(--color-text-secondary)">{messages.email}</span>
               <span className="text-[14px] text-(--color-text-primary)">{user?.email ?? "—"}</span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-[12px] text-(--color-text-secondary)">Cargo</span>
+              <span className="text-[12px] text-(--color-text-secondary)">{messages.role}</span>
               <span className="text-[14px] text-(--color-text-primary)">
-                {user?.jobRole?.name ?? (user?.role === "admin" ? "Administrador" : "Operador")}
+                {roleName}
               </span>
             </div>
           </div>
         </div>
-        <p className="border-t border-(--color-border) px-5 py-3 text-[12px] text-(--color-text-secondary)">
-          Nome, e-mail e senha são gerenciados pelo administrador em Funcionários.
+        <p className="border-t border-(--color-border) px-4 py-3 text-[12px] text-(--color-text-secondary) sm:px-5">
+          {messages.profileDescription}
         </p>
       </div>
 
@@ -696,8 +827,10 @@ interface AiSettings {
 }
 
 function AiPreferencesCard() {
+  const { preferences: messages } = useSettingsMessages()
   const [settings, setSettings] = useState<AiSettings | null>(null)
   const [saving, setSaving] = useState(false)
+  const showLoadError = useEffectEvent(() => toast.error(messages.aiLoadError))
 
   useEffect(() => {
     let active = true
@@ -705,7 +838,9 @@ function AiPreferencesCard() {
       .then((value) => {
         if (active) setSettings(value)
       })
-      .catch(() => toast.error("Não foi possível carregar a configuração de IA."))
+      .catch(() => {
+        if (active) showLoadError()
+      })
     return () => {
       active = false
     }
@@ -720,11 +855,9 @@ function AiPreferencesCard() {
         json: { enabled },
       }).json<AiSettings>()
       setSettings(updated)
-      toast.success(enabled
-        ? "Relatórios de IA habilitados."
-        : "Relatórios de IA desabilitados.")
+      toast.success(enabled ? messages.aiEnabled : messages.aiDisabled)
     } catch {
-      toast.error("Não foi possível alterar a configuração de IA.")
+      toast.error(messages.aiSaveError)
     } finally {
       setSaving(false)
     }
@@ -734,32 +867,32 @@ function AiPreferencesCard() {
     ? "Gemini"
     : settings?.provider === "anthropic"
       ? "Anthropic"
-      : "Não configurado"
+      : messages.aiProviderMissing
 
   return (
     <div className="overflow-hidden rounded-xl border border-(--color-border) bg-(--color-surface)">
-      <div className="flex items-center gap-2 px-5 py-4 bg-(--color-surface-raised) border-b border-(--color-border)">
+      <div className="flex items-center gap-2 px-4 py-4 bg-(--color-surface-raised) border-b border-(--color-border) sm:px-5">
         <Sparkles size={17} className="text-(--color-accent)" />
         <h2 className="text-[18px] font-medium text-(--color-text-primary) font-(family-name:--font-ui)">
-          Inteligência Artificial
+          {messages.ai}
         </h2>
       </div>
-      <div className="flex items-center justify-between gap-6 px-5 py-4">
+      <div className="flex items-start justify-between gap-3 px-4 py-4 sm:items-center sm:gap-6 sm:px-5">
         <div className="flex flex-col">
           <span className="text-[14px] text-(--color-text-primary) font-(family-name:--font-data)">
-            Relatórios de IA
+            {messages.aiReports}
           </span>
           <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-            Permite gerar análises explicativas na tela de Inteligência. Provedor: {providerLabel}.
+            {messages.aiReportsDescription(providerLabel)}
           </span>
           {settings && !settings.providerConfigured && (
             <span className="mt-1 text-[12px] text-(--color-warning)">
-              Configure o provedor e a chave no servidor antes de habilitar este recurso.
+              {messages.aiProviderSetup}
             </span>
           )}
         </div>
         <Switch
-          aria-label="Habilitar relatórios de inteligência artificial"
+          aria-label={messages.enableAiReports}
           checked={settings?.enabled ?? false}
           disabled={!settings || saving || (!settings.providerConfigured && !settings.enabled)}
           onCheckedChange={(enabled) => void changeEnabled(enabled)}
@@ -769,13 +902,11 @@ function AiPreferencesCard() {
   )
 }
 
-const FONT_SIZE_OPTIONS: { value: FontSize; label: string }[] = [
-  { value: "pequena", label: "Pequena" },
-  { value: "padrao", label: "Padrão" },
-  { value: "grande", label: "Grande" },
-]
+const FONT_SIZE_OPTIONS: FontSize[] = ["pequena", "padrao", "grande"]
 
 function GeneralPreferencesCard() {
+  const { locale, setLocale } = useLocale()
+  const messages = settingsMessages[locale].preferences
   const { resolvedTheme, setThemeWithTransition } = useThemeTransition()
   const fontSize = useFontSizeStore((s) => s.fontSize)
   const setFontSize = useFontSizeStore((s) => s.setFontSize)
@@ -783,31 +914,31 @@ function GeneralPreferencesCard() {
 
   return (
     <div className="rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden">
-      <div className="px-5 py-4 bg-(--color-surface-raised) border-b border-(--color-border)">
+      <div className="px-4 py-4 bg-(--color-surface-raised) border-b border-(--color-border) sm:px-5">
         <h2 className="text-[18px] font-medium text-(--color-text-primary) font-(family-name:--font-ui)">
-          Preferências Gerais
+          {messages.general}
         </h2>
       </div>
 
-      <div className="flex items-center justify-between px-5 py-4 border-b border-(--color-border)">
+      <div className="flex flex-col gap-3 border-b border-(--color-border) px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex flex-col">
           <span className="text-[14px] text-(--color-text-primary) font-(family-name:--font-data)">
-            Aparência
+            {messages.appearance}
           </span>
           <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-            Escolha entre o tema claro ou escuro da interface
+            {messages.appearanceDescription}
           </span>
         </div>
         {mounted && (
-          <div className="flex gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:shrink-0">
             <ThemeOptionCard
-              label="Claro"
+              label={messages.light}
               theme="light"
               active={resolvedTheme === "light"}
               onSelect={() => setThemeWithTransition("light")}
             />
             <ThemeOptionCard
-              label="Escuro"
+              label={messages.dark}
               theme="dark"
               active={resolvedTheme === "dark"}
               onSelect={() => setThemeWithTransition("dark")}
@@ -816,51 +947,47 @@ function GeneralPreferencesCard() {
         )}
       </div>
 
-      <div className="flex items-center justify-between px-5 py-4 border-b border-(--color-border)">
+      <div className="flex flex-col gap-3 border-b border-(--color-border) px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex flex-col">
           <span className="text-[14px] text-(--color-text-primary) font-(family-name:--font-data)">
-            Tamanho da Fonte
+            {messages.fontSize}
           </span>
           <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-            Ajuste o tamanho do texto em toda a interface
+            {messages.fontSizeDescription}
           </span>
         </div>
         {mounted && (
-          <div className="flex gap-4">
+          <div className="grid grid-cols-3 gap-2 sm:shrink-0 sm:gap-4">
             {FONT_SIZE_OPTIONS.map((option) => (
               <FontSizeOption
-                key={option.value}
-                label={option.label}
-                scale={FONT_SIZE_SCALE[option.value]}
-                active={fontSize === option.value}
-                onSelect={() => setFontSize(option.value)}
+                key={option}
+                label={messages.fontSizes[option]}
+                scale={FONT_SIZE_SCALE[option]}
+                active={fontSize === option}
+                onSelect={() => setFontSize(option)}
               />
             ))}
           </div>
         )}
       </div>
 
-      <div className="flex items-center justify-between px-5 py-4">
+      <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex flex-col">
-          <span className="text-[14px] text-(--color-text-primary) font-(family-name:--font-data)">
-            Idioma
-          </span>
-          <span className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
-            Idioma da interface do sistema
+          <Label htmlFor="settings-language" className="text-[14px] font-normal text-(--color-text-primary) font-(family-name:--font-data)">
+            {messages.language}
+          </Label>
+          <span id="settings-language-description" className="text-[12px] text-(--color-text-secondary) font-(family-name:--font-data)">
+            {messages.languageDescription}
           </span>
         </div>
-        <Select defaultValue="pt-BR">
-          <SelectTrigger className="w-45">
-            <SelectValue />
+        <Select value={locale} items={LOCALE_OPTIONS} onValueChange={(value) => { if (isLocale(value)) setLocale(value) }}>
+          <SelectTrigger id="settings-language" aria-describedby="settings-language-description" className="w-full sm:w-45 sm:shrink-0 max-sm:data-[size=default]:h-10">
+            <SelectValue lang={locale} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="pt-BR">Português (Brasil)</SelectItem>
-            <SelectItem value="en-US" disabled>
-              English (em breve)
-            </SelectItem>
-            <SelectItem value="es" disabled>
-              Español (em breve)
-            </SelectItem>
+            {Object.entries(LOCALE_OPTIONS).map(([value, label]) => (
+              <SelectItem key={value} value={value} lang={value}>{label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -884,9 +1011,10 @@ function ThemeOptionCard({
   return (
     <button
       type="button"
+      aria-pressed={active}
       onClick={onSelect}
       className={cn(
-        "flex w-28 flex-col gap-2 rounded-xl border-2 p-2 transition-colors",
+        "flex min-w-0 flex-col gap-2 rounded-xl border-2 p-2 transition-colors sm:w-28",
         active
           ? "border-(--color-accent)"
           : "border-(--color-border) hover:border-(--color-text-secondary)/40"
@@ -909,7 +1037,7 @@ function ThemeOptionCard({
           </span>
         )}
       </div>
-      <span className="text-center text-[13px] font-medium text-(--color-text-primary) font-(family-name:--font-data)">
+      <span className="w-full text-center text-[13px] font-medium text-(--color-text-primary) font-(family-name:--font-data)">
         {label}
       </span>
     </button>
@@ -928,7 +1056,7 @@ function FontSizeOption({
   onSelect: () => void
 }) {
   return (
-    <button type="button" onClick={onSelect} className="flex flex-col items-center gap-2">
+    <button type="button" aria-pressed={active} onClick={onSelect} className="flex min-w-0 flex-col items-center gap-2">
       <span
         className={cn(
           "flex size-12 items-center justify-center rounded-full font-semibold transition-colors font-(family-name:--font-data)",
@@ -938,7 +1066,7 @@ function FontSizeOption({
         )}
         style={{ fontSize: `${14 * scale}px` }}
       >
-        Aa
+        <span aria-hidden="true">Aa</span>
       </span>
       <span
         className={cn(

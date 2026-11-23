@@ -22,6 +22,9 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { INTELLIGENCE_MESSAGES, type IntelligenceMessages } from "@/lib/intelligence-messages"
+import type { Locale } from "@/lib/locale"
 import { HTTPError } from "ky"
 import { RevenueForecastChart } from "@/components/analytics/RevenueForecastChart"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -55,50 +58,48 @@ type MetricTone = "success" | "warning" | "danger" | "accent"
 
 const SALES_RANKING_LIMIT = 10
 
-const PERIOD_OPTIONS: Array<{ value: Period; label: string }> = [
-  { value: "monthly", label: "Mensal" },
-  { value: "quarterly", label: "Trimestral" },
-]
+const PERIOD_OPTIONS: Period[] = ["monthly", "quarterly"]
 
 const KPI_LABEL =
   "text-[11px] font-semibold uppercase tracking-[0.55px] text-(--color-text-secondary) font-(family-name:--font-data)"
 const KPI_VALUE =
   "mt-4 text-[28px] font-semibold leading-none tracking-[-0.56px] text-(--color-text-primary) font-(family-name:--font-data)"
 
-const CONFIDENCE_LABEL: Record<ForecastRun["confidenceLabel"], string> = {
-  low: "Baixa",
-  medium: "Média",
-  high: "Alta",
-  unavailable: "Indisponível",
-}
+const CONFIDENCE_LABEL = {
+  low: "confidenceLow",
+  medium: "confidenceMedium",
+  high: "confidenceHigh",
+  unavailable: "unavailable",
+} as const satisfies Record<ForecastRun["confidenceLabel"], keyof IntelligenceMessages>
 
-const FORECAST_STATUS: Record<ForecastRun["status"], string> = {
-  completed: "Previsão concluída",
-  insufficient_data: "Dados insuficientes",
-  poor_data_quality: "Qualidade de dados insuficiente",
-  baseline_not_beaten: "Sem ganho sobre a referência",
-}
+const FORECAST_STATUS = {
+  completed: "forecastCompleted",
+  insufficient_data: "insufficientData",
+  poor_data_quality: "poorQuality",
+  baseline_not_beaten: "baselineNotBeaten",
+} as const satisfies Record<ForecastRun["status"], keyof IntelligenceMessages>
 
-const FORECAST_METHOD: Record<ForecastRun["method"], string> = {
-  ols_trend: "Tendência linear",
-  seasonal_ols: "Tendência com sazonalidade",
-  damped_trend: "Tendência amortecida",
-  naive_last_value: "Último valor observado",
-  unavailable: "Indisponível",
-}
+const FORECAST_METHOD = {
+  ols_trend: "linearTrend",
+  seasonal_ols: "seasonalTrend",
+  damped_trend: "dampedTrend",
+  naive_last_value: "naiveLastValue",
+  unavailable: "unavailable",
+} as const satisfies Record<ForecastRun["method"], keyof IntelligenceMessages>
 
-const STATE_LABEL: Record<Recommendation["state"], string> = {
-  pending: "Aguardando revisão",
-  accepted: "Aplicada",
-  rejected: "Rejeitada",
-}
+const STATE_LABEL = {
+  pending: "awaitingReview",
+  accepted: "applied",
+  rejected: "rejected",
+} as const satisfies Record<Recommendation["state"], keyof IntelligenceMessages>
 
-const INSIGHT_LABEL: Record<AiInsight["type"], string> = {
-  summary: "Resumo executivo",
-  strength: "Ponto forte",
-  risk: "Ponto de atenção",
-  recommendation: "Recomendação",
-}
+const INSIGHT_LABEL = {
+  summary: "executiveSummary",
+  strength: "strength",
+  risk: "attention",
+  recommendation: "recommendation",
+} as const satisfies Record<AiInsight["type"], keyof IntelligenceMessages>
+
 const INSIGHT_TYPES: AiInsight["type"][] = [
   "summary",
   "strength",
@@ -114,7 +115,7 @@ function SurfaceCard({
   children: ReactNode
 }) {
   return (
-    <div className={cn("rounded-xl border border-(--color-border) bg-(--color-surface)", className)}>
+    <div className={cn("min-w-0 rounded-xl border border-(--color-border) bg-(--color-surface)", className)}>
       {children}
     </div>
   )
@@ -135,21 +136,24 @@ function Segmented({
   value: Period
   onChange: (value: Period) => void
 }) {
+  const { locale } = useLocale()
+  const messages = INTELLIGENCE_MESSAGES[locale]
   return (
     <div className="inline-flex rounded-lg border border-(--color-border) bg-(--color-surface) p-0.5">
       {PERIOD_OPTIONS.map((option) => (
         <button
-          key={option.value}
+          key={option}
           type="button"
-          onClick={() => onChange(option.value)}
+          aria-pressed={value === option}
+          onClick={() => onChange(option)}
           className={cn(
             "rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
-            value === option.value
+            value === option
               ? "bg-(--color-surface-raised) text-(--color-text-primary)"
               : "text-(--color-text-secondary) hover:text-(--color-text-primary)"
           )}
         >
-          {option.label}
+          {messages[option]}
         </button>
       ))}
     </div>
@@ -171,9 +175,17 @@ function currentRange(period: Period) {
   }
 }
 
-function formatPercentage(value: number | null, digits = 0) {
+function decimal(value: number, digits: number, locale: Locale) {
+  return value.toLocaleString(locale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    useGrouping: false,
+  })
+}
+
+function formatPercentage(value: number | null, locale: Locale, digits = 0) {
   if (value === null) return "—"
-  return `${(value * 100).toFixed(digits).replace(".", ",")}%`
+  return `${decimal(value * 100, digits, locale)}%`
 }
 
 function formatReportRange(range: NonNullable<AiInsight["reportRange"]>) {
@@ -196,13 +208,13 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {}
 }
 
-function recommendationValue(recommendation: Recommendation) {
+function recommendationValue(recommendation: Recommendation, messages: IntelligenceMessages) {
   const value = objectValue(recommendation.proposedValue)
   if (recommendation.type === "replenishment") {
     const quantity = typeof value.quantity === "number" ? value.quantity : null
     return quantity === null
-      ? "Revisar a reposição; a quantidade depende de histórico diário de estoque."
-      : `Repor ${quantity} unidades.`
+      ? messages.reviewRestock
+      : messages.restockUnits(quantity)
   }
   if (recommendation.type === "promotion") {
     const rate = typeof value.discountRate === "number" ? value.discountRate : null
@@ -210,18 +222,18 @@ function recommendationValue(recommendation: Recommendation) {
       ? formatCurrency(value.suggestedPriceCents / 100)
       : null
     if (rate !== null && price) {
-      return `Aplicar desconto de ${(rate * 100).toFixed(0)}%, com preço sugerido de ${price}.`
+      return messages.applyPromotion((rate * 100).toFixed(0), price)
     }
-    return "Revisar a condição promocional sugerida."
+    return messages.reviewPromotion
   }
-  return "Revisar manualmente o nível de estoque e o giro deste produto."
+  return messages.manualStockReview
 }
 
 function numericValue(value: Record<string, unknown>, key: string) {
   return typeof value[key] === "number" ? value[key] : null
 }
 
-function recommendationEvidence(recommendation: Recommendation) {
+function recommendationEvidence(recommendation: Recommendation, messages: IntelligenceMessages, locale: Locale) {
   const evidence = objectValue(recommendation.evidenceMetrics)
   if (recommendation.type === "replenishment") {
     const replenishment = objectValue(evidence.replenishment)
@@ -231,16 +243,16 @@ function recommendationEvidence(recommendation: Recommendation) {
     const urgent = (stockoutProbability ?? 0) >= 0.5
       || (daysOfCover !== null && daysOfCover <= (numericValue(replenishment, "leadTimeDays") ?? 0))
     return {
-      badge: urgent ? "Urgente" : "Repor",
+      badge: urgent ? messages.urgent : messages.restock,
       badgeClass: urgent
         ? "bg-(--color-danger)/15 text-(--color-danger)"
         : "bg-(--color-warning)/15 text-(--color-warning)",
       detail: [
-        dailyDemand === null ? null : `Demanda média de ${dailyDemand.toFixed(1).replace(".", ",")} un./dia`,
-        daysOfCover === null ? null : `${daysOfCover.toFixed(1).replace(".", ",")} dias de cobertura`,
+        dailyDemand === null ? null : messages.dailyDemand(decimal(dailyDemand, 1, locale)),
+        daysOfCover === null ? null : messages.coverageDays(decimal(daysOfCover, 1, locale)),
         stockoutProbability === null
           ? null
-          : `${(stockoutProbability * 100).toFixed(0)}% de risco de ruptura no horizonte`,
+          : messages.stockoutProbability((stockoutProbability * 100).toFixed(0)),
       ].filter(Boolean).join(" · "),
     }
   }
@@ -249,11 +261,11 @@ function recommendationEvidence(recommendation: Recommendation) {
   const turnover = numericValue(evidence, "unitTurnover")
   const excessUnits = numericValue(promotion, "excessUnits")
   return {
-    badge: recommendation.type === "promotion" ? "Baixo giro" : "Revisar",
+    badge: recommendation.type === "promotion" ? messages.lowStockTurnover : messages.review,
     badgeClass: "bg-(--color-warning)/15 text-(--color-warning)",
     detail: [
-      turnover === null ? null : `Giro de ${turnover.toFixed(2).replace(".", ",")}x no período`,
-      excessUnits === null ? null : `${excessUnits.toFixed(0)} un. acima do estoque-alvo`,
+      turnover === null ? null : messages.turnoverMetric(decimal(turnover, 2, locale)),
+      excessUnits === null ? null : messages.excessUnits(excessUnits.toFixed(0)),
     ].filter(Boolean).join(" · "),
   }
 }
@@ -273,6 +285,8 @@ function seasonalSuggestions(
   points: SeasonalForecastPoint[],
   salesProducts: DashboardData["topProducts"]["data"],
   reviewProducts: Recommendation[],
+  messages: IntelligenceMessages,
+  locale: Locale,
 ): SeasonalSuggestion[] {
   const today = new Date().toISOString().slice(0, 10)
   const leaders = salesProducts.slice(0, 3).map((product) => product.name)
@@ -286,58 +300,58 @@ function seasonalSuggestions(
     const events = point.calendarEvents.filter((event) => event.endsOn >= today)
     if (events.length === 0) return []
     const names = events.map((event) => event.name)
-    let action = "Planejar a exposição e o abastecimento para a mudança do período."
-    let reason = "A mudança de período pode alterar o mix procurado; acompanhe vendas e estoque por categoria antes de ampliar compras."
+    let action = messages.seasonChangeAction
+    let reason = messages.seasonChangeReason
     let products = leaders
 
     if (names.includes("Black Friday")) {
-      action = "Preparar uma campanha de Black Friday com desconto limitado pela margem e quantidade máxima por item."
-      reason = "A data é adequada para acelerar itens de baixo giro, mas desconto sem limite pode elevar faturamento e reduzir o lucro. Priorize produtos já sinalizados para revisão."
+      action = messages.blackFridayAction
+      reason = messages.blackFridayReason
       products = review.length > 0 ? review : leaders
     } else if (names.includes("Período de Natal")) {
-      action = "Montar kits de presente com os itens líderes e reservar estoque para reposição rápida durante dezembro."
-      reason = "O período de presentes permite aumentar o valor do pedido combinando produtos complementares; os líderes atuais são o ponto de partida mais seguro."
+      action = messages.christmasAction
+      reason = messages.christmasReason
       products = leaders
     } else if (names.includes("Dia das Crianças")) {
       const children = matchingProducts(/KIDS|INFANTIL|CRIANÇ|BEBÊ|BEBE/i)
       action = children.length > 0
-        ? "Criar uma campanha curta de Dia das Crianças com os itens infantis que já têm saída."
-        : "Validar se existe mix infantil antes de investir em uma campanha de Dia das Crianças."
+        ? messages.childrenAction
+        : messages.childrenValidate
       reason = children.length > 0
-        ? "Há produtos infantis entre os itens vendidos; uma campanha segmentada reduz o risco de divulgar itens sem aderência."
-        : "O mix vendido não mostra produtos infantis entre os destaques, então usar apenas a data do calendário seria uma sugestão sem evidência do negócio."
+        ? messages.childrenReason
+        : messages.childrenNoData
       products = children
     } else if (names.includes("Volta às aulas")) {
       const school = matchingProducts(/ESCOLAR|MOCHILA|LANCHEIRA|INFANTIL|KIDS/i)
       action = school.length > 0
-        ? "Antecipar a exposição dos itens ligados à volta às aulas e conferir sua cobertura de estoque."
-        : "Só criar campanha de volta às aulas se o cadastro tiver produtos realmente relacionados ao período."
+        ? messages.schoolAction
+        : messages.schoolValidate
       reason = school.length > 0
-        ? "Os itens relacionados já aparecem nas vendas; planejar antes do início do período evita ruptura na janela de procura."
-        : "Não foram encontrados produtos escolares entre os itens vendidos, portanto a data deve ser tratada apenas como oportunidade a validar."
+        ? messages.schoolReason
+        : messages.schoolNoData
       products = school
     } else if (names.includes("Réveillon")) {
-      action = "Planejar kits e comunicação de fim de ano sem misturar o estoque reservado para o Natal."
-      reason = "Natal e Réveillon dividem dezembro, mas podem ter propostas diferentes; separar estoque e campanha facilita medir qual período gerou cada venda."
+      action = messages.newYearAction
+      reason = messages.newYearReason
       products = leaders
     } else if (names.includes("Verão")) {
       const summer = matchingProducts(/BANHO|TOALHA|PRAIA|PISCINA|LEVE/i)
-      action = "Revisar o mix de verão e dar mais espaço aos itens compatíveis que já demonstram saída."
-      reason = "A estação muda a ocasião de uso dos produtos. Usar vendas existentes evita aumentar estoque apenas por uma associação genérica com o verão."
+      action = messages.summerAction
+      reason = messages.summerReason
       products = summer.length > 0 ? summer : leaders
     } else if (names.includes("Primavera")) {
-      action = "Comparar o giro por categoria na transição para a primavera e ajustar a vitrine antes de novas compras."
-      reason = "A troca de estação é um bom ponto de revisão do mix, mas ainda não existe um ciclo anual completo para atribuir um percentual automático de aumento ou queda."
+      action = messages.springAction
+      reason = messages.springReason
       products = leaders
     } else if (names.includes("Inverno")) {
-      action = "Concentrar a exposição nos itens de inverno que já vendem e evitar ampliar estoque perto do fim da estação."
-      reason = "A janela restante do inverno é curta; usar os líderes atuais reduz o risco de terminar a estação com mercadoria parada."
+      action = messages.winterAction
+      reason = messages.winterReason
       products = leaders
     }
 
     return [{
       id: point.id,
-      period: monthLabel(point.bucketStart),
+      period: monthLabel(point.bucketStart, locale),
       events: names,
       action,
       reason,
@@ -365,6 +379,8 @@ function KpiLineCard({
   points: Array<{ label: string; value: number; display: string; highlight?: boolean }>
   lineColor?: string
 }) {
+  const { locale } = useLocale()
+  const messages = INTELLIGENCE_MESSAGES[locale]
   return (
     <SurfaceCard className="flex flex-col p-5">
       <div className="flex items-start justify-between">
@@ -380,7 +396,7 @@ function KpiLineCard({
       {points.length > 0 ? (
         <MiniLine data={points} color={lineColor} />
       ) : (
-        <p className="mt-auto text-[11px] text-(--color-text-secondary)">Sem série histórica no período.</p>
+        <p className="mt-auto text-[11px] text-(--color-text-secondary)">{messages.noSeries}</p>
       )}
     </SurfaceCard>
   )
@@ -395,6 +411,8 @@ function OrderStatusChart({
   columns: KanbanColumn[]
   orders: Order[]
 }) {
+  const { locale } = useLocale()
+  const messages = INTELLIGENCE_MESSAGES[locale]
   const slices = columns
     .map((column) => ({
       ...column,
@@ -414,20 +432,21 @@ function OrderStatusChart({
   return (
     <SurfaceCard className="flex flex-col p-5">
       <div className="flex items-start justify-between">
-        <span className={KPI_LABEL}>Ordens de Serviço</span>
+        <span className={KPI_LABEL}>{messages.serviceOrders}</span>
         <span className="flex size-8 items-center justify-center rounded-lg bg-(--color-info)/15 text-(--color-info)">
           <Wrench size={16} />
         </span>
       </div>
       <p className={KPI_VALUE}>{total}</p>
       <p className="mt-2 mb-5 text-[12px] font-medium text-(--color-text-secondary)">
-        {dashboard?.serviceOrders.openCount ?? 0} em aberto · {dashboard?.serviceOrders.overdueOpenCount ?? 0} atrasadas
+        {messages.openOrderCounts(dashboard?.serviceOrders.openCount ?? 0, dashboard?.serviceOrders.overdueOpenCount ?? 0)}
       </p>
       <div className="mt-auto flex items-center gap-4">
         <div
           className="size-20 shrink-0 rounded-full"
           style={{ background: total === 0 ? "var(--color-surface-raised)" : `conic-gradient(${gradient})` }}
-          aria-label={`Distribuição de ${total} ordens por etapa`}
+          role="img"
+          aria-label={messages.orderDistribution(total)}
         />
         <div className="min-w-0 flex-1 space-y-1.5">
           {slices.map((slice) => (
@@ -443,7 +462,7 @@ function OrderStatusChart({
             </div>
           ))}
           {slices.length === 0 && (
-            <p className="text-[11px] text-(--color-text-secondary)">Nenhuma ordem cadastrada.</p>
+            <p className="text-[11px] text-(--color-text-secondary)">{messages.noOrders}</p>
           )}
         </div>
       </div>
@@ -485,6 +504,8 @@ function RecommendationActions({
   recommendation: Recommendation
   onReview: (id: string, decision: "accepted" | "rejected") => Promise<void>
 }) {
+  const { locale } = useLocale()
+  const messages = INTELLIGENCE_MESSAGES[locale]
   const [reviewing, setReviewing] = useState(false)
 
   if (recommendation.state !== "pending") {
@@ -496,8 +517,8 @@ function RecommendationActions({
           : "bg-(--color-danger)/15 text-(--color-danger)"
       )}>
         {recommendation.state === "accepted" && recommendation.type !== "promotion"
-          ? "Revisada"
-          : STATE_LABEL[recommendation.state]}
+          ? messages.reviewed
+          : messages[STATE_LABEL[recommendation.state]]}
       </span>
     )
   }
@@ -517,7 +538,7 @@ function RecommendationActions({
         size="sm"
         variant="outline"
         disabled={reviewing}
-        aria-label={`Rejeitar recomendação para ${recommendation.product.name}`}
+        aria-label={messages.rejectRecommendation(recommendation.product.name)}
         onClick={() => void review("rejected")}
       >
         <X size={14} />
@@ -525,11 +546,13 @@ function RecommendationActions({
       <Button
         size="sm"
         disabled={reviewing}
-        aria-label={`${recommendation.type === "promotion" ? "Aplicar" : "Revisar"} recomendação para ${recommendation.product.name}`}
+        aria-label={recommendation.type === "promotion"
+          ? messages.applyRecommendation(recommendation.product.name)
+          : messages.reviewRecommendation(recommendation.product.name)}
         onClick={() => void review("accepted")}
       >
         {reviewing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-        {recommendation.type === "promotion" ? "Aplicar" : "Revisar"}
+        {recommendation.type === "promotion" ? messages.apply : messages.review}
       </Button>
     </div>
   )
@@ -544,46 +567,51 @@ function RecommendationList({
   emptyMessage: string
   onReview: (id: string, decision: "accepted" | "rejected") => Promise<void>
 }) {
+  const { locale } = useLocale()
+  const messages = INTELLIGENCE_MESSAGES[locale]
   if (items.length === 0) {
     return <p className="text-[12px] text-(--color-text-secondary)">{emptyMessage}</p>
   }
 
   return (
-    <div className="flex max-h-[420px] flex-col gap-3 overflow-y-auto pr-1">
-      {items.map((recommendation) => (
-        <div
-          key={recommendation.id}
-          className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="truncate text-[14px] font-semibold text-(--color-text-primary)">
-                  {recommendation.product.name}
+    <div className="flex flex-col gap-3 lg:max-h-[420px] lg:overflow-y-auto lg:pr-1">
+      {items.map((recommendation) => {
+        const evidence = recommendationEvidence(recommendation, messages, locale)
+        return (
+          <div
+            key={recommendation.id}
+            className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3"
+          >
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="min-w-0 wrap-anywhere text-[14px] font-semibold text-(--color-text-primary)">
+                    {recommendation.product.name}
+                  </p>
+                  <span className={cn(
+                    "rounded-md px-2 py-0.5 text-[9px] font-semibold uppercase",
+                    evidence.badgeClass
+                  )}>
+                    {evidence.badge}
+                  </span>
+                </div>
+                {evidence.detail && (
+                  <p className="mt-1 text-[11px] leading-relaxed text-(--color-text-secondary)">
+                    {evidence.detail}
+                  </p>
+                )}
+                <p className="mt-1 text-[12px] leading-relaxed text-(--color-text-secondary)">
+                  {recommendationValue(recommendation, messages)}
                 </p>
-                <span className={cn(
-                  "rounded-md px-2 py-0.5 text-[9px] font-semibold uppercase",
-                  recommendationEvidence(recommendation).badgeClass
-                )}>
-                  {recommendationEvidence(recommendation).badge}
-                </span>
+                <p className="mt-2 text-[11px] text-(--color-text-secondary)">
+                  {messages.confidence}: {messages[CONFIDENCE_LABEL[recommendation.confidenceLabel]]}
+                </p>
               </div>
-              {recommendationEvidence(recommendation).detail && (
-                <p className="mt-1 text-[11px] leading-relaxed text-(--color-text-secondary)">
-                  {recommendationEvidence(recommendation).detail}
-                </p>
-              )}
-              <p className="mt-1 text-[12px] leading-relaxed text-(--color-text-secondary)">
-                {recommendationValue(recommendation)}
-              </p>
-              <p className="mt-2 text-[11px] text-(--color-text-secondary)">
-                Confiança: {CONFIDENCE_LABEL[recommendation.confidenceLabel]}
-              </p>
+              <RecommendationActions recommendation={recommendation} onReview={onReview} />
             </div>
-            <RecommendationActions recommendation={recommendation} onReview={onReview} />
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -637,8 +665,8 @@ function MetricCard({
     <SurfaceCard className="relative flex min-h-[222px] flex-col overflow-hidden p-5">
       <div className={cn("absolute inset-x-0 top-0 h-1", style.top)} />
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <span className={cn("flex size-9 items-center justify-center rounded-lg", style.icon)}>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", style.icon)}>
             <Icon size={17} />
           </span>
           <span className={KPI_LABEL}>{label}</span>
@@ -647,7 +675,7 @@ function MetricCard({
           "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold",
           style.badge
         )}>
-          <span className="size-1.5 rounded-full" style={{ backgroundColor: style.color }} />
+          <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: style.color }} />
           {status}
         </span>
       </div>
@@ -689,26 +717,28 @@ function SalesRankingTable({
   title: string
   items: DashboardData["topProducts"]["data"]
 }) {
+  const { locale } = useLocale()
+  const messages = INTELLIGENCE_MESSAGES[locale]
   return (
     <SurfaceCard className="overflow-hidden">
       <div className="border-b border-(--color-border) bg-(--color-surface-raised) px-5 py-3.5">
         <CardTitle>{title}</CardTitle>
       </div>
-      <Table>
+      <Table className="max-sm:[&_th]:whitespace-normal">
         <TableHeader>
           <TableRow className="border-(--color-border) hover:bg-transparent">
-            <TableHead>Item</TableHead>
-            <TableHead>Cód. barras</TableHead>
-            <TableHead className="text-right">Vendas</TableHead>
-            <TableHead className="text-right">Faturamento</TableHead>
+            <TableHead>{messages.item}</TableHead>
+            <TableHead>{messages.barcode}</TableHead>
+            <TableHead className="text-right">{messages.sales}</TableHead>
+            <TableHead className="text-right">{messages.revenue}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.productId} className="border-(--color-border)">
-              <TableCell className="font-medium text-(--color-text-primary)">{item.name}</TableCell>
+              <TableCell className="font-medium text-(--color-text-primary) max-sm:max-w-44 max-sm:whitespace-normal max-sm:wrap-anywhere">{item.name}</TableCell>
               <TableCell className="text-(--color-text-secondary)">{item.barcode ?? "—"}</TableCell>
-              <TableCell className="text-right">{item.unitsSold} un.</TableCell>
+              <TableCell className="text-right">{messages.units(item.unitsSold)}</TableCell>
               <TableCell className="text-right font-medium text-(--color-success)">
                 {formatCurrency(item.netRevenueCents / 100)}
               </TableCell>
@@ -716,8 +746,8 @@ function SalesRankingTable({
           ))}
           {items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={4} className="py-8 text-center text-(--color-text-secondary)">
-                Nenhuma venda no período.
+              <TableCell colSpan={4} className="px-4 py-8 text-center whitespace-normal text-(--color-text-secondary)">
+                {messages.noSales}
               </TableCell>
             </TableRow>
           )}
@@ -728,6 +758,8 @@ function SalesRankingTable({
 }
 
 export default function InteligenciaPage() {
+  const { locale } = useLocale()
+  const messages = INTELLIGENCE_MESSAGES[locale]
   const dashboard = useAnalyticsStore((state) => state.dashboard)
   const trendDashboard = useAnalyticsStore((state) => state.trendDashboard)
   const forecasts = useAnalyticsStore((state) => state.forecasts)
@@ -755,7 +787,7 @@ export default function InteligenciaPage() {
       await loadDashboard(currentRange(period), false)
       await loadIntelligence()
     } catch {
-      toast.error("Não foi possível carregar os dados de inteligência.")
+      toast.error(messages.loadError)
     } finally {
       setRunning(null)
     }
@@ -767,8 +799,8 @@ export default function InteligenciaPage() {
       loadIntelligence(),
       loadOrders(),
     ])
-      .catch(() => toast.error("Não foi possível carregar os dados de inteligência."))
-  }, [loadDashboard, loadIntelligence, loadOrders, period])
+      .catch(() => toast.error(messages.loadError))
+  }, [loadDashboard, loadIntelligence, loadOrders, messages.loadError, period])
 
   useEffect(() => {
     if (insightRunStatus !== "pending" && insightRunStatus !== "processing") return
@@ -797,8 +829,8 @@ export default function InteligenciaPage() {
         ? await error.response.json<{ code?: string }>().catch(() => null)
         : null
       toast.error(body?.code === "AI_INPUT_UNAVAILABLE"
-        ? "Ainda não há histórico suficiente para gerar o relatório."
-        : "Não foi possível iniciar o processamento.")
+        ? messages.reportHistoryError
+        : messages.runError)
     } finally {
       setRunning(null)
     }
@@ -806,10 +838,10 @@ export default function InteligenciaPage() {
 
   async function generateReport() {
     if (insightAvailability === "unavailable") {
-      toast.error("O provedor de IA ainda não está configurado.")
+      toast.error(messages.providerError)
       return
     }
-    await execute("insight", runInsights, "A geração dos relatórios mensal e trimestral foi solicitada.")
+    await execute("insight", runInsights, messages.reportRequested)
     setReportOpen(true)
   }
 
@@ -824,34 +856,34 @@ export default function InteligenciaPage() {
       await reviewRecommendation(id, decision)
       toast.success(decision === "accepted"
         ? isManualReview
-          ? "Revisão registrada com sucesso."
-          : "Recomendação aplicada com sucesso."
-        : "Recomendação rejeitada.")
+          ? messages.reviewSuccess
+          : messages.applySuccess
+        : messages.rejectionSuccess)
     } catch {
       toast.error(decision === "accepted"
         ? isManualReview
-          ? "Não foi possível registrar a revisão."
-          : "Não foi possível aplicar a recomendação."
-        : "Não foi possível rejeitar a recomendação.")
+          ? messages.reviewError
+          : messages.applyError
+        : messages.rejectionError)
     }
   }
 
   const revenuePoints = trendDashboard?.revenueSeries.map((point, index, series) => ({
-    label: monthLabel(point.bucketStart),
+    label: monthLabel(point.bucketStart, locale),
     value: point.netRevenueCents / 100,
     display: formatCurrency(point.netRevenueCents / 100),
     highlight: index === series.length - 1,
   })) ?? []
   const salesPoints = trendDashboard?.revenueSeries.map((point, index, series) => ({
-    label: monthLabel(point.bucketStart),
+    label: monthLabel(point.bucketStart, locale),
     value: point.completedSaleCount,
-    display: `${point.completedSaleCount} vendas`,
+    display: messages.salesCount(point.completedSaleCount),
     highlight: index === series.length - 1,
   })) ?? []
   const inventoryPoints = trendDashboard?.inventorySeries.map((point, index, series) => ({
-    label: monthLabel(point.bucketStart),
+    label: monthLabel(point.bucketStart, locale),
     value: point.soldOutCount + point.lowStockCount,
-    display: `${point.soldOutCount + point.lowStockCount} itens`,
+    display: messages.itemsCount(point.soldOutCount + point.lowStockCount),
     highlight: index === series.length - 1,
   })) ?? []
 
@@ -860,17 +892,18 @@ export default function InteligenciaPage() {
 
   const revenueDashboard = trendDashboard ?? dashboard
   const forecastChart = useMemo(
-    () => revenueDashboard ? buildRevenueForecastChart(revenueDashboard, revenueForecast) : [],
-    [revenueDashboard, revenueForecast],
+    () => revenueDashboard ? buildRevenueForecastChart(revenueDashboard, revenueForecast, locale) : [],
+    [locale, revenueDashboard, revenueForecast],
   )
 
   const visibleInsights = insights.filter((insight) => insight.state !== "rejected")
   const insightReports = PERIOD_OPTIONS.map((option) => {
     const reportInsights = visibleInsights.filter(
-      (insight) => insight.reportPeriod === option.value
+      (insight) => insight.reportPeriod === option
     )
     return {
-      ...option,
+      value: option,
+      label: messages[option],
       range: reportInsights[0]?.reportRange,
       groups: INSIGHT_TYPES.map((type) => ({
         type,
@@ -906,6 +939,8 @@ export default function InteligenciaPage() {
     seasonalPoints,
     (dashboard?.topProducts.data ?? []).filter((item) => item.type !== "service"),
     promotionRecommendations,
+    messages,
+    locale,
   )
   const unitTurnover = dashboard?.inventory.unitTurnover ?? null
   const coverageDays = dashboard?.inventory.coverageDays ?? null
@@ -941,25 +976,25 @@ export default function InteligenciaPage() {
   return (
     <div>
       <PageHeader
-        title="Inteligência"
-        subtitle="Painel estratégico de performance de vendas, estoque e produção"
+        title={messages.title}
+        subtitle={messages.subtitle}
       />
 
       <SurfaceCard className="mb-6 overflow-hidden">
         <div
           className={cn(
-            "flex flex-wrap items-center justify-between gap-4 bg-(--color-surface-raised) px-5 py-3.5",
+            "flex flex-wrap items-center justify-between gap-4 bg-(--color-surface-raised) px-4 py-3.5 sm:px-5",
             reportVisible && "border-b border-(--color-border)"
           )}
         >
           <div className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/15 text-(--color-accent)">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-(--color-accent)">
               <Sparkles size={16} />
             </span>
             <div>
-              <CardTitle>Relatório de IA</CardTitle>
+              <CardTitle>{messages.aiReport}</CardTitle>
               <p className="text-[11px] text-(--color-text-secondary)">
-                Explicações persistidas a partir das evidências matemáticas do período
+                {messages.aiReportDescription}
               </p>
             </div>
           </div>
@@ -977,10 +1012,10 @@ export default function InteligenciaPage() {
                   ? <Loader2 size={16} className="animate-spin" />
                   : <Sparkles size={16} />}
                 {insightProcessing
-                    ? "Processando relatórios"
+                    ? messages.processingReports
                   : visibleInsights.length > 0
-                    ? "Ver Relatórios de IA"
-                    : "Gerar Relatórios de IA"}
+                    ? messages.viewReports
+                    : messages.generateReports}
               </Button>
             ) : (
               <>
@@ -990,11 +1025,11 @@ export default function InteligenciaPage() {
                   onClick={() => void generateReport()}
                 >
                   {running === "insight" ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                  Regenerar ambos
+                  {messages.regenerate}
                 </Button>
                 <button
                   type="button"
-                  aria-label="Fechar relatório"
+                  aria-label={messages.closeReport}
                   onClick={() => setReportOpen(false)}
                   className="rounded p-1 text-(--color-text-secondary) transition-colors hover:bg-(--color-surface) hover:text-(--color-text-primary)"
                 >
@@ -1006,20 +1041,20 @@ export default function InteligenciaPage() {
         </div>
 
         {reportVisible && (
-          <div className="p-5">
+          <div className="p-4 sm:p-5">
             {visibleInsights.length === 0 ? (
               <div className="flex items-center gap-2 text-[13px] text-(--color-text-secondary)">
                 {insightProcessing && <Loader2 size={15} className="animate-spin" />}
                 <p>
                   {insightProcessing
-                    ? "Os relatórios mensal e trimestral estão sendo processados e aparecerão automaticamente."
+                    ? messages.reportsProcessing
                     : insightRunStatus === "rejected"
-                      ? "A resposta da IA não passou pela validação de evidências. Gere um novo relatório."
+                      ? messages.invalidEvidence
                       : insightRunStatus === "failed"
-                        ? "A geração do relatório falhou. Tente novamente."
+                        ? messages.reportFailed
                         : insightRunStatus === "budget_exceeded"
-                          ? "O limite de uso da IA foi atingido."
-                          : "Nenhum relatório foi gerado ainda."}
+                          ? messages.limitReached
+                          : messages.noReports}
                 </p>
               </div>
             ) : (
@@ -1027,21 +1062,21 @@ export default function InteligenciaPage() {
                 {insightReports.map((report) => (
                   <section
                     key={report.value}
-                    className="rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-5"
+                    className="rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-4 sm:p-5"
                   >
                     <div className="mb-5 flex items-center justify-between gap-3 border-b border-(--color-border) pb-3">
                       <div>
                         <h3 className="text-[15px] font-semibold text-(--color-text-primary)">
-                          Relatório {report.label}
+                          {messages.reportTitle(report.label)}
                         </h3>
                         <p className="mt-0.5 text-[11px] text-(--color-text-secondary)">
                           {report.value === "monthly"
-                            ? "Desempenho recente e ações para os próximos 30 dias"
-                            : "Tendências do trimestre e decisões para o próximo ciclo"}
+                            ? messages.monthlyReportDescription
+                            : messages.quarterlyReportDescription}
                         </p>
                         {report.range && (
                           <p className="mt-1 text-[11px] text-(--color-text-secondary)">
-                            Período analisado: {formatReportRange(report.range)}
+                            {messages.reportRange(formatReportRange(report.range))}
                           </p>
                         )}
                       </div>
@@ -1051,7 +1086,7 @@ export default function InteligenciaPage() {
                     </div>
                     {report.range === null ? (
                       <p className="text-[13px] text-(--color-text-secondary)">
-                        Relatório anterior sem recorte por período. Use “Regenerar ambos” para atualizar a análise.
+                        {messages.legacyReport}
                       </p>
                     ) : report.groups.length > 0 ? (
                       <div className="flex flex-col gap-5">
@@ -1066,17 +1101,17 @@ export default function InteligenciaPage() {
                                     : group.type === "summary"
                                       ? <FileText size={14} className="text-(--color-accent)" />
                                       : <TrendingUp size={14} className="text-(--color-success)" />}
-                                {INSIGHT_LABEL[group.type]}
+                                {messages[INSIGHT_LABEL[group.type]]}
                               </h4>
                             </div>
                             {group.items.length > 1 ? (
-                              <ul className="list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed text-(--color-text-secondary)">
+                            <ul className="list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed wrap-anywhere text-(--color-text-secondary)">
                                 {group.items.map((insight) => (
                                   <li key={insight.id}>{insight.text}</li>
                                 ))}
                               </ul>
                             ) : (
-                              <p className="text-[13px] leading-relaxed text-(--color-text-secondary)">
+                              <p className="text-[13px] leading-relaxed wrap-anywhere text-(--color-text-secondary)">
                                 {group.items[0]?.text}
                               </p>
                             )}
@@ -1085,13 +1120,13 @@ export default function InteligenciaPage() {
                       </div>
                     ) : (
                       <p className="text-[13px] text-(--color-text-secondary)">
-                        Este relatório ainda não foi gerado. Use “Regenerar ambos” para criar as duas análises.
+                        {messages.missingPeriodReport}
                       </p>
                     )}
                   </section>
                 ))}
                 <p className="xl:col-span-2 border-t border-(--color-border) pt-3 text-[11px] text-(--color-text-secondary)">
-                  Conteúdo explicativo. As recomendações precisam de revisão humana antes de qualquer ação.
+                  {messages.reportDisclaimer}
                 </p>
               </div>
             )}
@@ -1099,33 +1134,33 @@ export default function InteligenciaPage() {
         )}
       </SurfaceCard>
 
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
-        <span className="text-[12px] text-(--color-text-secondary)">Período dos indicadores</span>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 sm:justify-end">
+        <span className="text-[12px] text-(--color-text-secondary)">{messages.period}</span>
         <Segmented value={period} onChange={setPeriod} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiLineCard
-          label={period === "monthly" ? "Faturamento do Mês" : "Faturamento do Trimestre"}
+          label={period === "monthly" ? messages.monthlyRevenue : messages.quarterlyRevenue}
           value={formatCurrency((dashboard?.sales.netRevenueCents ?? 0) / 100)}
-          hint="faturamento líquido realizado"
+          hint={messages.realizedNetRevenue}
           hintClass="text-(--color-success)"
           icon={DollarSign}
           iconClass="bg-(--color-success)/15 text-(--color-success)"
           points={revenuePoints}
         />
         <KpiLineCard
-          label="Vendas Realizadas"
+          label={messages.completedSales}
           value={String(dashboard?.sales.completedSaleCount ?? 0)}
-          hint={`Ticket médio ${formatCurrency((dashboard?.sales.averageTicketCents ?? 0) / 100)}`}
+          hint={messages.averageSaleHint(formatCurrency((dashboard?.sales.averageTicketCents ?? 0) / 100))}
           icon={ShoppingCart}
           iconClass="bg-primary/15 text-(--color-accent)"
           points={salesPoints}
         />
         <KpiLineCard
-          label="Estoque Crítico"
+          label={messages.criticalStock}
           value={String(criticalStock)}
-          hint={`${dashboard?.inventory.soldOutCount ?? 0} esgotados · ${dashboard?.inventory.lowStockCount ?? 0} em nível baixo`}
+          hint={messages.criticalStockHint(dashboard?.inventory.soldOutCount ?? 0, dashboard?.inventory.lowStockCount ?? 0)}
           hintClass="text-(--color-warning)"
           icon={TriangleAlert}
           iconClass="bg-(--color-warning)/15 text-(--color-warning)"
@@ -1138,27 +1173,27 @@ export default function InteligenciaPage() {
       <section className="mt-8">
         <div className="mb-3 flex items-center gap-2">
           <Wallet size={16} className="text-(--color-text-secondary)" />
-          <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Análise de Caixa</h2>
+          <h2 className="text-[18px] font-semibold text-(--color-text-primary)">{messages.cashAnalysis}</h2>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <CashCard
-            label="Caixas Abertos"
+            label={messages.openedRegisters}
             value={String(dashboard?.cash.openedSessionCount ?? 0)}
-            hint="sessões abertas no período"
+            hint={messages.openedSessions}
             icon={Wallet}
             iconClass="bg-primary/15 text-(--color-accent)"
           />
           <CashCard
-            label="Caixas Fechados"
+            label={messages.closedRegisters}
             value={String(dashboard?.cash.closedSessionCount ?? 0)}
-            hint="sessões conferidas no período"
+            hint={messages.closedSessions}
             icon={Banknote}
             iconClass="bg-(--color-success)/15 text-(--color-success)"
           />
           <CashCard
-            label="Divergência Acumulada"
+            label={messages.cashDifference}
             value={formatCurrency(cashDifference)}
-            hint={cashDifference === 0 ? "Sem divergência registrada" : cashDifference > 0 ? "Sobra acumulada" : "Falta acumulada"}
+            hint={cashDifference === 0 ? messages.noDiscrepancy : cashDifference > 0 ? messages.cashSurplus : messages.cashShortfall}
             icon={TriangleAlert}
             iconClass={cashDifference === 0
               ? "bg-(--color-success)/15 text-(--color-success)"
@@ -1173,9 +1208,9 @@ export default function InteligenciaPage() {
             <div className="flex items-center gap-2">
               <TrendingUp size={18} className="text-(--color-accent)" />
               <div>
-                <CardTitle>Projeção de Faturamento</CardTitle>
+                <CardTitle>{messages.revenueForecast}</CardTitle>
                 <p className="text-[12px] text-(--color-text-secondary)">
-                  Valores realizados e previsão persistida para os próximos meses
+                  {messages.forecastDescription}
                 </p>
               </div>
             </div>
@@ -1184,54 +1219,54 @@ export default function InteligenciaPage() {
               variant="outline"
               className="gap-2"
               disabled={running !== null}
-              onClick={() => void execute("forecast", runForecasts, "A geração das previsões foi solicitada.")}
+              onClick={() => void execute("forecast", runForecasts, messages.forecastRequested)}
             >
               {running === "forecast" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              Atualizar previsão
+              {messages.updateForecast}
             </Button>
           </div>
           {forecastChart.length > 0 ? (
             <RevenueForecastChart data={forecastChart} />
           ) : (
             <p className="py-12 text-center text-[13px] text-(--color-text-secondary)">
-              Nenhuma previsão de faturamento publicada.
+              {messages.noRevenueForecast}
             </p>
           )}
         </SurfaceCard>
 
         <div className="flex flex-col gap-4 lg:h-full">
           <SurfaceCard className="p-5 lg:h-full">
-            <CardTitle>Qualidade da Previsão</CardTitle>
+            <CardTitle>{messages.forecastQuality}</CardTitle>
             <p className="mb-4 text-[12px] text-(--color-text-secondary)">
-              Método e confiança do cálculo atual
+              {messages.forecastQualityDescription}
             </p>
             {revenueForecast ? (
               <div className="flex flex-col gap-3">
                 <div className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3">
-                  <p className="text-[11px] text-(--color-text-secondary)">Método selecionado</p>
+                  <p className="text-[11px] text-(--color-text-secondary)">{messages.selectedMethod}</p>
                   <p className="mt-1 text-[13px] font-semibold text-(--color-text-primary)">
-                    {FORECAST_METHOD[revenueForecast.method]}
+                    {messages[FORECAST_METHOD[revenueForecast.method]]}
                   </p>
                 </div>
                 <div className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) p-3">
-                  <p className="text-[11px] text-(--color-text-secondary)">Confiança</p>
+                  <p className="text-[11px] text-(--color-text-secondary)">{messages.confidence}</p>
                   <p className={cn("mt-1 text-[13px] font-semibold", confidenceTone(revenueForecast.confidenceLabel))}>
-                    {CONFIDENCE_LABEL[revenueForecast.confidenceLabel]}
+                    {messages[CONFIDENCE_LABEL[revenueForecast.confidenceLabel]]}
                     {revenueForecast.confidenceScore !== null ? ` · ${revenueForecast.confidenceScore.toFixed(0)}%` : ""}
                   </p>
                 </div>
                 <p className="text-[11px] text-(--color-text-secondary)">
-                  {FORECAST_STATUS[revenueForecast.status]}
+                  {messages[FORECAST_STATUS[revenueForecast.status]]}
                 </p>
                 {(revenueForecast.method === "naive_last_value"
                   || revenueForecast.method === "damped_trend") && (
                   <p className="rounded-lg bg-(--color-warning)/10 px-3 py-2 text-[11px] leading-relaxed text-(--color-warning)">
-                    A tendência ainda tem poucos períodos de validação. A projeção reduz a inclinação observada para evitar extrapolar um crescimento que ainda não foi confirmado.
+                    {messages.forecastCaution}
                   </p>
                 )}
               </div>
             ) : (
-              <p className="text-[12px] text-(--color-text-secondary)">Nenhum cálculo publicado.</p>
+              <p className="text-[12px] text-(--color-text-secondary)">{messages.noCalculation}</p>
             )}
           </SurfaceCard>
 
@@ -1245,13 +1280,13 @@ export default function InteligenciaPage() {
               <CalendarDays size={16} />
             </span>
             <div>
-              <CardTitle>Sugestões Sazonais</CardTitle>
+              <CardTitle>{messages.seasonalOpportunities}</CardTitle>
               <p className="text-[12px] text-(--color-text-secondary)">
-                Ações sugeridas a partir dos períodos do ano e das vendas do Flux
+                {messages.seasonalDescription}
               </p>
             </div>
           </div>
-          <div className="flex h-[440px] flex-col gap-2 overflow-y-auto pr-1">
+          <div className="flex flex-col gap-2 lg:h-[440px] lg:overflow-y-auto lg:pr-1">
             {seasonalitySuggestions.map((suggestion) => (
               <article
                 key={suggestion.id}
@@ -1275,7 +1310,7 @@ export default function InteligenciaPage() {
                 </p>
                 <div className="mt-2 rounded-lg bg-(--color-surface) px-3 py-2">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-(--color-text-secondary)">
-                    Por que esta sugestão
+                    {messages.whySuggestion}
                   </p>
                   <p className="mt-1 text-[11px] leading-relaxed text-(--color-text-secondary)">
                     {suggestion.reason}
@@ -1283,7 +1318,7 @@ export default function InteligenciaPage() {
                 </div>
                 {suggestion.products && (
                   <p className="mt-2 text-[11px] text-(--color-text-secondary)">
-                    <span className="font-semibold text-(--color-text-primary)">Produtos para avaliar:</span>{" "}
+                    <span className="font-semibold text-(--color-text-primary)">{messages.reviewProducts}</span>{" "}
                     {suggestion.products}
                   </p>
                 )}
@@ -1291,7 +1326,7 @@ export default function InteligenciaPage() {
             ))}
             {seasonalitySuggestions.length === 0 && (
               <p className="py-12 text-center text-[12px] text-(--color-text-secondary)">
-                Nenhuma oportunidade sazonal futura foi identificada no horizonte atual.
+                {messages.noSeasonal}
               </p>
             )}
           </div>
@@ -1300,41 +1335,42 @@ export default function InteligenciaPage() {
         <SurfaceCard className="p-5 lg:h-[520px]">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <CardTitle>Sugestões de Reposição</CardTitle>
-              <p className="text-[12px] text-(--color-text-secondary)">Itens com necessidade calculada de abastecimento</p>
+              <CardTitle>{messages.replenishment}</CardTitle>
+              <p className="text-[12px] text-(--color-text-secondary)">{messages.replenishmentDescription}</p>
             </div>
             <Button
               size="sm"
               variant="ghost"
-              aria-label="Atualizar recomendações"
+              aria-label={messages.updateRecommendations}
               disabled={running !== null}
-              onClick={() => void execute("recommendation", runRecommendations, "A geração das recomendações foi solicitada.")}
+              onClick={() => void execute("recommendation", runRecommendations, messages.recommendationRequested)}
             >
               {running === "recommendation" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             </Button>
           </div>
           <RecommendationList
             items={replenishmentRecommendations}
-            emptyMessage="Nenhuma reposição sugerida para o período."
+            emptyMessage={messages.noReplenishment}
             onReview={handleRecommendationReview}
           />
         </SurfaceCard>
       </div>
 
-      <div className="mt-8 flex items-center justify-between gap-4">
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Ranking de Vendas</h2>
-          <p className="text-[12px] text-(--color-text-secondary)">Maiores e menores faturamentos realizados no período</p>
+          <h2 className="text-[18px] font-semibold text-(--color-text-primary)">{messages.salesRankings}</h2>
+          <p className="text-[12px] text-(--color-text-secondary)">{messages.salesRankingsDescription}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-(--color-border) bg-(--color-surface) p-0.5">
             {([
-              { value: "product" as const, label: "Produto" },
-              { value: "service" as const, label: "Serviço" },
+              { value: "product" as const, label: messages.product },
+              { value: "service" as const, label: messages.service },
             ]).map((option) => (
               <button
                 key={option.value}
                 type="button"
+                aria-pressed={rankingType === option.value}
                 onClick={() => setRankingType(option.value)}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
@@ -1355,56 +1391,56 @@ export default function InteligenciaPage() {
             onClick={() => void refresh()}
           >
             <RefreshCw size={14} className={running === "refresh" ? "animate-spin" : ""} />
-            Atualizar
+            {messages.refresh}
           </Button>
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <SalesRankingTable
-          title={`Maiores Vendas de ${rankingType === "service" ? "Serviços" : "Produtos"}`}
+          title={rankingType === "service" ? messages.highestServiceSales : messages.highestProductSales}
           items={highestSales}
         />
         <SalesRankingTable
-          title={`Menores Vendas de ${rankingType === "service" ? "Serviços" : "Produtos"}`}
+          title={rankingType === "service" ? messages.lowestServiceSales : messages.lowestProductSales}
           items={lowestSales}
         />
       </div>
 
       <SurfaceCard className="mt-4 overflow-hidden">
         <div className="border-b border-(--color-border) bg-(--color-surface-raised) px-5 py-3.5">
-          <CardTitle>Demanda Prevista por Produto</CardTitle>
+          <CardTitle>{messages.forecastDemand}</CardTitle>
         </div>
-        <Table>
+        <Table className="max-sm:[&_th]:whitespace-normal">
           <TableHeader>
             <TableRow className="border-(--color-border) hover:bg-transparent">
-              <TableHead>Produto</TableHead>
-              <TableHead>Método</TableHead>
-              <TableHead>Confiança</TableHead>
-              <TableHead className="text-right">Previsão</TableHead>
+              <TableHead>{messages.product}</TableHead>
+              <TableHead>{messages.method}</TableHead>
+              <TableHead>{messages.confidence}</TableHead>
+              <TableHead className="text-right">{messages.forecast}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {demandForecasts.map((forecast) => (
               <TableRow key={forecast.id} className="border-(--color-border)">
-                <TableCell className="font-medium text-(--color-text-primary)">
-                  {forecast.product?.name ?? "Produto"}
+                <TableCell className="font-medium text-(--color-text-primary) max-sm:max-w-44 max-sm:whitespace-normal max-sm:wrap-anywhere">
+                  {forecast.product?.name ?? messages.product}
                 </TableCell>
                 <TableCell className="text-(--color-text-secondary)">
-                  {FORECAST_METHOD[forecast.method]}
+                  {messages[FORECAST_METHOD[forecast.method]]}
                 </TableCell>
                 <TableCell className={confidenceTone(forecast.confidenceLabel)}>
-                  {CONFIDENCE_LABEL[forecast.confidenceLabel]}
+                  {messages[CONFIDENCE_LABEL[forecast.confidenceLabel]]}
                 </TableCell>
                 <TableCell className="text-right font-medium text-(--color-accent)">
-                  {forecast.points[0]?.operationalValue ?? 0} un.
+                  {messages.units(forecast.points[0]?.operationalValue ?? 0)}
                 </TableCell>
               </TableRow>
             ))}
             {demandForecasts.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-(--color-text-secondary)">
-                  Nenhuma previsão de demanda publicada. O cálculo precisa de histórico mensal de vendas; sem observações diárias de disponibilidade, o resultado será marcado com confiança baixa.
+                <TableCell colSpan={4} className="px-4 py-8 text-center whitespace-normal text-(--color-text-secondary)">
+                  {messages.noDemand}
                 </TableCell>
               </TableRow>
             )}
@@ -1418,60 +1454,60 @@ export default function InteligenciaPage() {
             <Boxes size={16} />
           </span>
           <div>
-            <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Análise de Estoque Avançada</h2>
-            <p className="text-[12px] text-(--color-text-secondary)">Eficiência, autonomia e risco do saldo atual</p>
+            <h2 className="text-[18px] font-semibold text-(--color-text-primary)">{messages.stockAnalysis}</h2>
+            <p className="text-[12px] text-(--color-text-secondary)">{messages.stockAnalysisDescription}</p>
           </div>
         </div>
         {(unitTurnover === null || stockoutRate === null) && (
           <div className="mb-4 rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-3 text-[12px] leading-relaxed text-(--color-text-secondary)">
-            A cobertura usa as vendas do período e o saldo atual. Giro e ruptura dependem da evolução diária do estoque e serão calculados quando o Flux acumular observações completas de disponibilidade.
+            {messages.stockAnalysisNote}
           </div>
         )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <MetricCard
-            label="Giro de Estoque"
+            label={messages.turnover}
             value={unitTurnover === null
               ? "—"
-              : `${unitTurnover.toFixed(2).replace(".", ",")}x`}
+              : `${decimal(unitTurnover, 2, locale)}x`}
             status={unitTurnover === null
-              ? "Sem dados"
-              : unitTurnover < 0.5 ? "Giro muito baixo" : unitTurnover < 1 ? "Giro baixo" : "Bom giro"}
+              ? messages.noData
+              : unitTurnover < 0.5 ? messages.veryLowTurnover : unitTurnover < 1 ? messages.lowTurnover : messages.healthyTurnover}
             description={unitTurnover === null
-              ? "Ainda não há histórico suficiente para medir a renovação do estoque."
-              : `O estoque foi renovado ${unitTurnover.toFixed(2).replace(".", ",")} vez no período analisado.`}
-            reference="Quanto maior o giro, menos capital permanece parado em estoque."
+              ? messages.noTurnover
+              : messages.turnoverObserved(decimal(unitTurnover, 2, locale))}
+            reference={messages.turnoverReference}
             percent={null}
             tone={unitTurnoverTone}
             icon={RefreshCw}
           />
           <MetricCard
-            label="Cobertura de Estoque"
+            label={messages.coverage}
             value={coverageDays === null
               ? "—"
-              : `${coverageDays.toFixed(1).replace(".", ",")} dias`}
+              : messages.days(decimal(coverageDays, 1, locale))}
             status={coverageDays === null
-              ? "Sem dados"
+              ? messages.noData
               : coverageDays < 15
-                ? "Cobertura curta"
-                : coverageDays > 90 ? "Estoque excessivo" : coverageDays > 30 ? "Cobertura alta" : "Faixa saudável"}
+                ? messages.shortCoverage
+                : coverageDays > 90 ? messages.excessStock : coverageDays > 30 ? messages.highCoverage : messages.healthyCoverage}
             description={coverageDays === null
-              ? "Sem vendas suficientes para estimar por quanto tempo o saldo atual duraria."
-              : `No ritmo atual de vendas, o saldo disponível sustentaria aproximadamente ${coverageDays.toFixed(1).replace(".", ",")} dias.`}
-            reference="Referência operacional: entre 15 e 30 dias de cobertura."
+              ? messages.noCoverage
+              : messages.coverageEstimate(decimal(coverageDays, 1, locale))}
+            reference={messages.coverageReference}
             percent={null}
             tone={coverageTone}
             icon={Boxes}
           />
           <MetricCard
-            label="Taxa de Ruptura"
-            value={formatPercentage(stockoutRate, 1)}
+            label={messages.stockoutRate}
+            value={formatPercentage(stockoutRate, locale, 1)}
             status={stockoutRate === null
-              ? "Sem dados"
-              : stockoutRate === 0 ? "Sem rupturas" : stockoutRate <= 0.05 ? "Ruptura pontual" : "Atenção urgente"}
+              ? messages.noData
+              : stockoutRate === 0 ? messages.noStockouts : stockoutRate <= 0.05 ? messages.occasionalStockouts : messages.urgentAttention}
             description={stockoutRate === null
-              ? "Ainda não há observação suficiente sobre indisponibilidade de produtos."
-              : `${formatPercentage(stockoutRate, 1)} do tempo monitorado teve produto sem saldo disponível.`}
-            reference="Meta operacional: manter a ruptura abaixo de 5%."
+              ? messages.noStockoutData
+              : messages.stockoutObserved(formatPercentage(stockoutRate, locale, 1))}
+            reference={messages.stockoutReference}
             percent={stockoutRate === null ? null : stockoutRate * 100}
             tone={stockoutTone}
             icon={TriangleAlert}
@@ -1485,47 +1521,47 @@ export default function InteligenciaPage() {
             <Wrench size={16} />
           </span>
           <div>
-            <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Análise de Produção</h2>
-            <p className="text-[12px] text-(--color-text-secondary)">Velocidade e cumprimento dos prazos das ordens</p>
+            <h2 className="text-[18px] font-semibold text-(--color-text-primary)">{messages.productionAnalysis}</h2>
+            <p className="text-[12px] text-(--color-text-secondary)">{messages.productionAnalysisDescription}</p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <MetricCard
-            label="Índice de Atraso"
-            value={formatPercentage(delayRate)}
+            label={messages.delayRate}
+            value={formatPercentage(delayRate, locale)}
             status={delayRate === null
-              ? "Sem dados"
-              : delayRate <= 0.05 ? "Dentro da meta" : delayRate <= 0.1 ? "Ponto de atenção" : "Acima da meta"}
+              ? messages.noData
+              : delayRate <= 0.05 ? messages.withinTarget : delayRate <= 0.1 ? messages.attention : messages.aboveTarget}
             description={delayRate === null
-              ? "Nenhuma ordem concluída com prazo comparável foi encontrada no período."
-              : `${formatPercentage(delayRate)} das ordens com prazo foram finalizadas depois da data prevista.`}
-            reference="Meta operacional: manter os atrasos abaixo de 10%."
+              ? messages.noCompletedOrders
+              : messages.delayObserved(formatPercentage(delayRate, locale))}
+            reference={messages.delayReference}
             percent={delayRate === null ? null : delayRate * 100}
             tone={delayTone}
             icon={CalendarDays}
           />
           <MetricCard
-            label="Lead Time Médio"
+            label={messages.averageLeadTime}
             value={cycleTimeHours === null
               ? "—"
-              : `${(cycleTimeHours / 24).toFixed(1).replace(".", ",")} dias`}
-            status={cycleTimeHours === null ? "Sem dados" : "Ciclo observado"}
+              : messages.days(decimal(cycleTimeHours / 24, 1, locale))}
+            status={cycleTimeHours === null ? messages.noData : messages.observedCycle}
             description={cycleTimeHours === null
-              ? "Ainda não há ordens concluídas suficientes para calcular o ciclo médio."
-              : `Uma ordem levou, em média, ${cycleTimeHours.toFixed(1).replace(".", ",")} horas da criação até a conclusão.`}
-            reference="Quanto menor o tempo, mais rápido o fluxo de produção."
+              ? messages.noCycle
+              : messages.cycleObserved(decimal(cycleTimeHours, 1, locale))}
+            reference={messages.cycleReference}
             percent={null}
             tone="accent"
             icon={Wrench}
           />
           <MetricCard
-            label="Conclusão de Ordens"
-            value={formatPercentage(completionRate)}
+            label={messages.orderCompletion}
+            value={formatPercentage(completionRate, locale)}
             status={completionRate === null
-              ? "Sem dados"
-              : completionRate < 0.5 ? "Baixa conclusão" : completionRate < 0.8 ? "Em evolução" : "Bom desempenho"}
-            description={`${dashboard?.serviceOrders.completedCount ?? 0} de ${dashboard?.serviceOrders.createdCount ?? 0} ordens criadas no período foram concluídas.`}
-            reference="Uma taxa maior indica melhor vazão do fluxo de produção."
+              ? messages.noData
+              : completionRate < 0.5 ? messages.lowCompletion : completionRate < 0.8 ? messages.improvingCompletion : messages.healthyCompletion}
+            description={messages.completedObserved(dashboard?.serviceOrders.completedCount ?? 0, dashboard?.serviceOrders.createdCount ?? 0)}
+            reference={messages.completionReference}
             percent={completionRate === null ? null : completionRate * 100}
             tone={completionTone}
             icon={Check}
@@ -1539,43 +1575,43 @@ export default function InteligenciaPage() {
             <UsersRound size={16} />
           </span>
           <div>
-            <h2 className="text-[18px] font-semibold text-(--color-text-primary)">Análise de Clientes</h2>
-            <p className="text-[12px] text-(--color-text-secondary)">Valor e recorrência da base atendida</p>
+            <h2 className="text-[18px] font-semibold text-(--color-text-primary)">{messages.customerAnalysis}</h2>
+            <p className="text-[12px] text-(--color-text-secondary)">{messages.customerAnalysisDescription}</p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <MetricCard
-            label="Ticket Médio"
+            label={messages.averageSale}
             value={averageTicketCents === null
               ? "—"
               : formatCurrency(averageTicketCents / 100)}
-            status="Por venda concluída"
-            description={`${dashboard?.sales.completedSaleCount ?? 0} vendas concluídas compõem o valor médio apresentado.`}
-            reference="O indicador considera o faturamento líquido após descontos e devoluções."
+            status={messages.perCompletedSale}
+            description={messages.salesObserved(dashboard?.sales.completedSaleCount ?? 0)}
+            reference={messages.averageSaleReference}
             percent={null}
             tone="accent"
             icon={DollarSign}
           />
           <MetricCard
-            label="Frequência de Compra"
+            label={messages.purchaseFrequency}
             value={purchaseFrequency === null
               ? "—"
-              : `${purchaseFrequency.toFixed(1).replace(".", ",")}x`}
-            status={purchaseFrequency === null ? "Sem dados" : "Compras por cliente"}
-            description={`${dashboard?.customers.activeCustomerCount ?? 0} clientes identificados compraram no período analisado.`}
-            reference="Quanto maior a frequência, maior a repetição de compra na base."
+              : `${decimal(purchaseFrequency, 1, locale)}x`}
+            status={purchaseFrequency === null ? messages.noData : messages.purchasesPerCustomer}
+            description={messages.customersObserved(dashboard?.customers.activeCustomerCount ?? 0)}
+            reference={messages.frequencyReference}
             percent={null}
             tone="accent"
             icon={ShoppingCart}
           />
           <MetricCard
-            label="Clientes Recorrentes"
-            value={formatPercentage(repeatCustomerRate)}
+            label={messages.repeatCustomers}
+            value={formatPercentage(repeatCustomerRate, locale)}
             status={repeatCustomerRate === null
-              ? "Sem dados"
-              : repeatCustomerRate >= 0.8 ? "Alta recorrência" : repeatCustomerRate >= 0.5 ? "Recorrência moderada" : "Baixa recorrência"}
-            description={`${dashboard?.customers.repeatCustomerCount ?? 0} de ${dashboard?.customers.activeCustomerCount ?? 0} clientes identificados compraram duas ou mais vezes.`}
-            reference="Referência operacional: recorrência igual ou superior a 80%."
+              ? messages.noData
+              : repeatCustomerRate >= 0.8 ? messages.highRecurrence : repeatCustomerRate >= 0.5 ? messages.moderateRecurrence : messages.lowRecurrence}
+            description={messages.repeatObserved(dashboard?.customers.repeatCustomerCount ?? 0, dashboard?.customers.activeCustomerCount ?? 0)}
+            reference={messages.repeatReference}
             percent={repeatCustomerRate === null ? null : repeatCustomerRate * 100}
             tone={recurrenceTone}
             icon={UsersRound}
@@ -1584,9 +1620,9 @@ export default function InteligenciaPage() {
       </section>
 
       <p className="mt-6 text-right text-[10px] text-(--color-text-secondary)">
-        Dados atualizados em {dashboard?.dataFreshnessAt
+        {messages.updatedAt(dashboard?.dataFreshnessAt
           ? new Date(dashboard.dataFreshnessAt).toLocaleString("pt-BR")
-          : "—"}
+          : "—")}
       </p>
     </div>
   )

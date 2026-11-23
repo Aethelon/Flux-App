@@ -1,5 +1,9 @@
+"use client"
+
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
 
 type StatusVariant = "success" | "warning" | "danger" | "neutral" | "info"
 
@@ -28,6 +32,8 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
+  const { locale } = useLocale()
+  const labels = interfaceCopy[locale].statuses
   const variant = STATUS_MAP[status] ?? "neutral"
 
   return (
@@ -39,7 +45,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
         className
       )}
     >
-      {status}
+      {Object.hasOwn(labels, status) ? labels[status as keyof typeof labels] : status}
     </Badge>
   )
 }

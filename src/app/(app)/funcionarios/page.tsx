@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react"
 import { Plus, UserPen, UserMinus, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
+import type { Locale } from "@/lib/locale"
+import { PEOPLE_MESSAGES } from "@/lib/people-messages"
 import { api, fetchAllPages, idempotencyHeaders } from "@/lib/api"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
@@ -70,6 +74,13 @@ function employee(value: ApiEmployee): Employee {
   }
 }
 
+function displayRoleName(role: JobRole, locale: Locale) {
+  const copy = interfaceCopy[locale]
+  if (role.systemKey === "administrator") return copy.admin
+  if (role.systemKey === "operator") return copy.operator
+  return role.name
+}
+
 const AVATAR_COLORS = [
   "bg-[#5B6AF0]",
   "bg-[#3DAB7F]",
@@ -99,12 +110,6 @@ function EmployeeAvatar({ name, colorIndex }: { name: string; colorIndex: number
   )
 }
 
-const STATUS_FILTERS = [
-  { value: "todos", label: "Todos" },
-  { value: "Ativo", label: "Ativos" },
-  { value: "Inativo", label: "Inativos" },
-]
-
 const PER_PAGE = 10
 
 interface EmployeeForm {
@@ -119,6 +124,9 @@ interface EmployeeForm {
 const EMPTY_FORM: EmployeeForm = { name: "", email: "", phone: "", jobRoleId: "", status: "Ativo", password: "" }
 
 export default function FuncionariosPage() {
+  const { locale } = useLocale()
+  const messages = PEOPLE_MESSAGES[locale]
+  const copy = messages.employees
   const currentUserId = useUserStore((state) => state.user?.id)
   const roles = useJobRolesStore((state) => state.roles)
   const loadRoles = useJobRolesStore((state) => state.load)
@@ -137,8 +145,8 @@ export default function FuncionariosPage() {
   useEffect(() => {
     void Promise.all([fetchAllPages<ApiEmployee>("employees"), loadRoles()])
       .then(([response]) => setEmployees(response.map(employee)))
-      .catch(() => toast.error("Não foi possível carregar os funcionários."))
-  }, [loadRoles])
+      .catch(() => toast.error(copy.loadError))
+  }, [copy.loadError, loadRoles])
 
   const filtered = employees.filter((e) => {
     if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -189,9 +197,9 @@ export default function FuncionariosPage() {
       }).json<ApiEmployee>())
       setEmployees((previous) => [created, ...previous])
       setAddOpen(false)
-      toast.success("Funcionário adicionado com sucesso.")
+      toast.success(copy.added)
     } catch {
-      toast.error("Não foi possível adicionar o funcionário.")
+      toast.error(copy.addError)
     } finally {
       setSubmitting(false)
     }
@@ -219,9 +227,9 @@ export default function FuncionariosPage() {
         )
       )
       setEditOpen(false)
-      toast.success("Funcionário atualizado.")
+      toast.success(copy.updated)
     } catch {
-      toast.error("Não foi possível atualizar o funcionário.")
+      toast.error(copy.updateError)
     } finally {
       setSubmitting(false)
     }
@@ -241,10 +249,10 @@ export default function FuncionariosPage() {
       })
       setEmployees((prev) => prev.filter((e) => e.id !== selectedEmployee.id))
       setDeleteOpen(false)
-      toast.success(`${selectedEmployee.name} foi removido.`)
+      toast.success(copy.archived(selectedEmployee.name))
       setSelectedEmployee(null)
     } catch {
-      toast.error("Não foi possível remover o funcionário.")
+      toast.error(copy.archiveError)
     } finally {
       setSubmitting(false)
     }
@@ -253,40 +261,50 @@ export default function FuncionariosPage() {
   const columns: Column<Employee>[] = [
     {
       key: "name",
-      label: "Nome",
+      label: messages.name,
+      className: "max-sm:min-w-44",
       render: (row) => (
         <div className="flex items-center gap-3">
           <EmployeeAvatar name={row.name} colorIndex={avatarColorIndex(row.id)} />
-          <span className="font-medium">{row.name}</span>
+          <span className="font-medium max-sm:min-w-0 max-sm:max-w-36 max-sm:whitespace-normal max-sm:wrap-anywhere">{row.name}</span>
         </div>
       ),
     },
-    { key: "email", label: "E-mail" },
-    { key: "phone", label: "Telefone" },
+    { key: "email", label: messages.email },
+    { key: "phone", label: messages.phone },
     {
       key: "status",
-      label: "Status",
+      label: messages.status,
       render: (row) => <StatusBadge status={row.status} />,
     },
-    { key: "role", label: "Cargo" },
+    {
+      key: "role",
+      label: messages.role,
+      render: (row) => {
+        const role = roles.find((role) => role.id === row.jobRoleId)
+        return role ? displayRoleName(role, locale) : row.role
+      },
+    },
     {
       key: "actions",
-      label: "Ações",
-      className: "w-[80px]",
+      label: messages.actions,
+      className: "w-20 max-sm:sticky max-sm:right-0 max-sm:z-10 max-sm:bg-(--color-surface)",
       render: (row) => (
         <div className="flex items-center gap-1">
           <button
             onClick={() => openEdit(row)}
-            className="p-1.5 rounded hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-            title="Editar funcionário"
+            className="rounded p-1.5 text-(--color-text-secondary) transition-colors hover:bg-(--color-surface-raised) hover:text-(--color-text-primary) max-sm:p-2"
+            aria-label={copy.edit}
+            title={copy.edit}
           >
             <UserPen size={15} />
           </button>
           {canArchiveEmployee(currentUserId, row.id) && (
             <button
               onClick={() => openDelete(row)}
-              className="p-1.5 rounded hover:bg-(--color-danger)/10 text-(--color-danger)/60 hover:text-(--color-danger) transition-colors"
-              title="Remover funcionário"
+              className="rounded p-1.5 text-(--color-danger)/60 transition-colors hover:bg-(--color-danger)/10 hover:text-(--color-danger) max-sm:p-2"
+              aria-label={copy.archive}
+              title={copy.archive}
             >
               <UserMinus size={15} />
             </button>
@@ -299,25 +317,30 @@ export default function FuncionariosPage() {
   return (
     <div>
       <PageHeader
-        title="Funcionários"
-        subtitle="Gerencie sua equipe e cargos"
+        title={copy.title}
+        subtitle={copy.subtitle}
       />
 
       <DataTable
         columns={columns}
         data={paginated}
         keyField="id"
+        emptyMessage={messages.empty}
         filters={
           <>
             <TableSearchInput
               value={search}
               onChange={(v) => { setSearch(v); setPage(1) }}
-              placeholder="Buscar por nome..."
+              placeholder={messages.search}
             />
             <FilterDropdown
-              label="Status"
+              label={messages.status}
               value={statusFilter}
-              options={STATUS_FILTERS}
+              options={[
+                { value: "todos", label: messages.all },
+                { value: "Ativo", label: messages.activePlural },
+                { value: "Inativo", label: messages.inactivePlural },
+              ]}
               onChange={(v) => { setStatusFilter(v); setPage(1) }}
             />
           </>
@@ -329,7 +352,7 @@ export default function FuncionariosPage() {
             onClick={openAdd}
           >
             <Plus size={14} />
-            Novo Funcionário
+            {copy.add}
           </Button>
         }
         pagination={{
@@ -344,19 +367,19 @@ export default function FuncionariosPage() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Novo Funcionário</DialogTitle>
+            <DialogTitle>{copy.add}</DialogTitle>
           </DialogHeader>
           <EmployeeFormFields form={form} roles={roles} lockIdentity={false} onChange={setForm} />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </Button>
             <Button
               onClick={handleAdd}
               disabled={!form.name || !form.email || !form.jobRoleId || form.password.length < 8 || submitting}
               className="bg-(--color-accent) text-white"
             >
-              Salvar
+              {messages.save}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -366,7 +389,7 @@ export default function FuncionariosPage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Editar Funcionário</DialogTitle>
+            <DialogTitle>{copy.edit}</DialogTitle>
           </DialogHeader>
           <EmployeeFormFields
             form={form}
@@ -376,14 +399,14 @@ export default function FuncionariosPage() {
           />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </Button>
             <Button
               onClick={handleEdit}
               disabled={!form.name || !form.email || submitting}
               className="bg-(--color-accent) text-white"
             >
-              Salvar Alterações
+              {messages.saveChanges}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -396,21 +419,21 @@ export default function FuncionariosPage() {
             <AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)">
               <TriangleAlert size={20} />
             </AlertDialogMedia>
-            <AlertDialogTitle>Remover funcionário?</AlertDialogTitle>
+            <AlertDialogTitle>{copy.archiveTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedEmployee?.name} será arquivado e perderá o acesso às operações ativas.
+              {selectedEmployee && copy.archiveDescription(selectedEmployee.name)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Arquivar
+              {messages.archive}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -430,21 +453,23 @@ function EmployeeFormFields({
   lockIdentity: boolean
   onChange: (f: EmployeeForm) => void
 }) {
-  const selectedRoleName = roles.find((role) => role.id === form.jobRoleId)?.name
+  const { locale } = useLocale()
+  const messages = PEOPLE_MESSAGES[locale]
+  const selectedRole = roles.find((role) => role.id === form.jobRoleId)
 
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="employee-name">Nome</Label>
+        <Label htmlFor="employee-name">{messages.name}</Label>
         <Input
           id="employee-name"
-          placeholder="Nome completo"
+          placeholder={messages.fullName}
           value={form.name}
           onChange={(e) => onChange({ ...form, name: e.target.value })}
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="employee-email">E-mail</Label>
+        <Label htmlFor="employee-email">{messages.email}</Label>
         <Input
           id="employee-email"
           type="email"
@@ -455,7 +480,7 @@ function EmployeeFormFields({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="employee-phone">Telefone</Label>
+        <Label htmlFor="employee-phone">{messages.phone}</Label>
         <Input
           id="employee-phone"
           placeholder="(00) 00000-0000"
@@ -464,35 +489,35 @@ function EmployeeFormFields({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="employee-password">Senha</Label>
+        <Label htmlFor="employee-password">{messages.password}</Label>
         <Input
           id="employee-password"
           type="password"
           maxLength={128}
-          placeholder="Mínimo de 8 caracteres"
+          placeholder={messages.passwordHint}
           value={form.password}
           onChange={(e) => onChange({ ...form, password: e.target.value })}
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="employee-role">Cargo</Label>
+        <Label htmlFor="employee-role">{messages.role}</Label>
         <Select
           value={form.jobRoleId}
           disabled={lockIdentity}
           onValueChange={(jobRoleId) => jobRoleId && onChange({ ...form, jobRoleId })}
         >
           <SelectTrigger id="employee-role">
-            <SelectValue>{selectedRoleName ?? "Selecione um cargo"}</SelectValue>
+            <SelectValue>{selectedRole ? displayRoleName(selectedRole, locale) : messages.selectRole}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {roles.filter((role) => role.status === "active").map((role) => (
-              <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+              <SelectItem key={role.id} value={role.id}>{displayRoleName(role, locale)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="employee-status">Status</Label>
+        <Label htmlFor="employee-status">{messages.status}</Label>
         <Select
           value={form.status}
           disabled={lockIdentity}
@@ -502,8 +527,8 @@ function EmployeeFormFields({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="Ativo">Ativo</SelectItem>
-            <SelectItem value="Inativo">Inativo</SelectItem>
+            <SelectItem value="Ativo">{messages.active}</SelectItem>
+            <SelectItem value="Inativo">{messages.inactive}</SelectItem>
           </SelectContent>
         </Select>
       </div>

@@ -10,6 +10,8 @@ import {
   SelectItem,
 } from "@/components/ui/select"
 import { formatPhoneInput } from "@/lib/formatters"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
 
 export interface ClientFormValues {
   name: string
@@ -32,19 +34,21 @@ export function ClientFormFields({
   form: ClientFormValues
   onChange: (f: ClientFormValues) => void
 }) {
+  const { locale } = useLocale()
+  const copy = interfaceCopy[locale]
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-name">Nome</Label>
+        <Label htmlFor="client-name">{copy.clientName}</Label>
         <Input
           id="client-name"
-          placeholder="Nome completo"
+          placeholder={copy.clientFullName}
           value={form.name}
           onChange={(e) => onChange({ ...form, name: e.target.value })}
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-email">E-mail (opcional)</Label>
+        <Label htmlFor="client-email">{copy.optionalEmail}</Label>
         <Input
           id="client-email"
           type="email"
@@ -54,7 +58,7 @@ export function ClientFormFields({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-phone">Telefone</Label>
+        <Label htmlFor="client-phone">{copy.phone}</Label>
         <Input
           id="client-phone"
           required
@@ -64,17 +68,17 @@ export function ClientFormFields({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-status">Status</Label>
+        <Label htmlFor="client-status">{copy.status}</Label>
         <Select
           value={form.status}
           onValueChange={(v) => onChange({ ...form, status: v as "Ativo" | "Inativo" })}
         >
           <SelectTrigger id="client-status">
-            <SelectValue />
+            <SelectValue>{copy.statuses[form.status]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="Ativo">Ativo</SelectItem>
-            <SelectItem value="Inativo">Inativo</SelectItem>
+            <SelectItem value="Ativo">{copy.statuses.Ativo}</SelectItem>
+            <SelectItem value="Inativo">{copy.statuses.Inativo}</SelectItem>
           </SelectContent>
         </Select>
       </div>

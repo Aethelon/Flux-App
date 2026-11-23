@@ -14,41 +14,46 @@ import {
 import { cn } from "@/lib/utils"
 import { canAccessRoute } from "@/lib/accessControl"
 import { useUserStore } from "@/store/userStore"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
 import { SidebarItem } from "./SidebarItem"
 
 const SECTIONS = [
   {
-    label: "Operacional",
+    label: "operations",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/frente-de-caixa", label: "Frente de Caixa", icon: ShoppingCart },
-      { href: "/ordens", label: "Ordens", icon: Factory },
+      { href: "/dashboard", label: "dashboard", icon: LayoutDashboard },
+      { href: "/frente-de-caixa", label: "pointOfSale", icon: ShoppingCart },
+      { href: "/ordens", label: "orders", icon: Factory },
     ],
   },
   {
-    label: "Gestão",
+    label: "management",
     items: [
-      { href: "/caixa", label: "Caixa", icon: Wallet },
-      { href: "/inteligencia", label: "Inteligência", icon: Sparkles },
-      { href: "/inventario", label: "Inventário", icon: Archive },
-      { href: "/historico", label: "Histórico", icon: History },
+      { href: "/caixa", label: "cash", icon: Wallet },
+      { href: "/inteligencia", label: "intelligence", icon: Sparkles },
+      { href: "/inventario", label: "inventory", icon: Archive },
+      { href: "/historico", label: "history", icon: History },
     ],
   },
   {
-    label: "Pessoas",
+    label: "people",
     items: [
-      { href: "/clientes", label: "Clientes", icon: Users },
-      { href: "/funcionarios", label: "Funcionários", icon: ShieldCheck },
+      { href: "/clientes", label: "customers", icon: Users },
+      { href: "/funcionarios", label: "employees", icon: ShieldCheck },
     ],
   },
-]
+] as const
 
 interface SidebarNavProps {
   collapsed: boolean
+  onNavigate?: () => void
 }
 
-export function SidebarNav({ collapsed }: SidebarNavProps) {
+export function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
   const user = useUserStore((s) => s.user)
+  const { locale } = useLocale()
+  const copy = interfaceCopy[locale]
   const visibleSections = SECTIONS
     .map((section) => ({
       ...section,
@@ -61,7 +66,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
     .filter((section) => section.items.length > 0)
 
   return (
-    <nav className="flex-1 overflow-y-auto px-4 flex flex-col gap-1 scrollbar-none [&::-webkit-scrollbar]:hidden">
+    <nav aria-label={copy.navigation} className="flex-1 overflow-y-auto px-4 flex flex-col gap-1 scrollbar-none [&::-webkit-scrollbar]:hidden">
       {visibleSections.map((section, i) => (
         <div key={section.label}>
           {i > 0 && (
@@ -82,13 +87,13 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
           >
             <div className="h-7 flex items-center">
               <span className="text-[11px] font-semibold text-(--color-text-secondary) font-(family-name:--font-ui) uppercase tracking-[0.8px]">
-                {section.label}
+                {copy[section.label]}
               </span>
             </div>
           </div>
           <div className="flex flex-col gap-1">
             {section.items.map((item) => (
-              <SidebarItem key={item.href} collapsed={collapsed} {...item} />
+              <SidebarItem key={item.href} {...item} label={copy[item.label]} collapsed={collapsed} onNavigate={onNavigate} />
             ))}
           </div>
         </div>

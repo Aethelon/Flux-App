@@ -4,6 +4,8 @@ import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Plus, UserPen, UserMinus, TriangleAlert } from "lucide-react"
 import { toast } from "sonner"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { PEOPLE_MESSAGES } from "@/lib/people-messages"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { DataTable, Column } from "@/components/shared/DataTable"
 import { StatusBadge } from "@/components/shared/StatusBadge"
@@ -65,15 +67,12 @@ function ClientAvatar({ name, colorIndex }: { name: string; colorIndex: number }
   )
 }
 
-const STATUS_FILTERS = [
-  { value: "todos", label: "Todos" },
-  { value: "Ativo", label: "Ativos" },
-  { value: "Inativo", label: "Inativos" },
-]
-
 const PER_PAGE = 10
 
 export default function ClientesPage() {
+  const { locale } = useLocale()
+  const messages = PEOPLE_MESSAGES[locale]
+  const copy = messages.customers
   const clients = useClientsStore((s) => s.clients)
   const addClient = useClientsStore((s) => s.addClient)
   const updateClient = useClientsStore((s) => s.updateClient)
@@ -81,8 +80,8 @@ export default function ClientesPage() {
   const loadClients = useClientsStore((s) => s.loadClients)
 
   useEffect(() => {
-    void loadClients().catch(() => toast.error("Não foi possível carregar os clientes."))
-  }, [loadClients])
+    void loadClients().catch(() => toast.error(copy.loadError))
+  }, [copy.loadError, loadClients])
 
   // A busca global manda o cliente escolhido em `?q=` para a tela abrir filtrada.
   const searchParams = useSearchParams()
@@ -127,9 +126,9 @@ export default function ClientesPage() {
     try {
       await addClient(form)
       setAddOpen(false)
-      toast.success("Cliente adicionado com sucesso.")
+      toast.success(copy.added)
     } catch {
-      toast.error("Não foi possível adicionar o cliente.")
+      toast.error(copy.addError)
     } finally {
       setSubmitting(false)
     }
@@ -141,9 +140,9 @@ export default function ClientesPage() {
     try {
       await updateClient(selectedClient.id, form)
       setEditOpen(false)
-      toast.success("Cliente atualizado.")
+      toast.success(copy.updated)
     } catch {
-      toast.error("Não foi possível atualizar o cliente.")
+      toast.error(copy.updateError)
     } finally {
       setSubmitting(false)
     }
@@ -155,10 +154,10 @@ export default function ClientesPage() {
     try {
       await removeClient(selectedClient.id)
       setDeleteOpen(false)
-      toast.success(`${selectedClient.name} foi removido.`)
+      toast.success(copy.archived(selectedClient.name))
       setSelectedClient(null)
     } catch {
-      toast.error("Não foi possível remover o cliente.")
+      toast.error(copy.archiveError)
     } finally {
       setSubmitting(false)
     }
@@ -167,38 +166,41 @@ export default function ClientesPage() {
   const columns: Column<Client>[] = [
     {
       key: "name",
-      label: "Nome",
+      label: messages.name,
+      className: "max-sm:min-w-44",
       render: (row) => (
         <div className="flex items-center gap-3">
           <ClientAvatar name={row.name} colorIndex={avatarColorIndex(row.id)} />
-          <span className="font-medium">{row.name}</span>
+          <span className="font-medium max-sm:min-w-0 max-sm:max-w-36 max-sm:whitespace-normal max-sm:wrap-anywhere">{row.name}</span>
         </div>
       ),
     },
-    { key: "email",         label: "E-mail" },
-    { key: "phone",         label: "Telefone" },
+    { key: "email",         label: messages.email },
+    { key: "phone",         label: messages.phone },
     {
       key: "status",
-      label: "Status",
+      label: messages.status,
       render: (row) => <StatusBadge status={row.status} />,
     },
     {
       key: "actions",
-      label: "Ações",
-      className: "w-[80px]",
+      label: messages.actions,
+      className: "w-20 max-sm:sticky max-sm:right-0 max-sm:z-10 max-sm:bg-(--color-surface)",
       render: (row) => (
         <div className="flex items-center gap-1">
           <button
             onClick={() => openEdit(row)}
-            className="p-1.5 rounded hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-            title="Editar cliente"
+            className="rounded p-1.5 text-(--color-text-secondary) transition-colors hover:bg-(--color-surface-raised) hover:text-(--color-text-primary) max-sm:p-2"
+            aria-label={copy.edit}
+            title={copy.edit}
           >
             <UserPen size={15} />
           </button>
           <button
             onClick={() => openDelete(row)}
-            className="p-1.5 rounded hover:bg-(--color-danger)/10 text-(--color-danger)/60 hover:text-(--color-danger) transition-colors"
-            title="Remover cliente"
+            className="rounded p-1.5 text-(--color-danger)/60 transition-colors hover:bg-(--color-danger)/10 hover:text-(--color-danger) max-sm:p-2"
+            aria-label={copy.archive}
+            title={copy.archive}
           >
             <UserMinus size={15} />
           </button>
@@ -210,25 +212,30 @@ export default function ClientesPage() {
   return (
     <div>
       <PageHeader
-        title="Clientes"
-        subtitle="Gerencie sua base de clientes"
+        title={copy.title}
+        subtitle={copy.subtitle}
       />
 
       <DataTable
         columns={columns}
         data={paginated}
         keyField="id"
+        emptyMessage={messages.empty}
         filters={
           <>
             <TableSearchInput
               value={search}
               onChange={(v) => { setSearch(v); setPage(1) }}
-              placeholder="Buscar por nome..."
+              placeholder={messages.search}
             />
             <FilterDropdown
-              label="Status"
+              label={messages.status}
               value={statusFilter}
-              options={STATUS_FILTERS}
+              options={[
+                { value: "todos", label: messages.all },
+                { value: "Ativo", label: messages.activePlural },
+                { value: "Inativo", label: messages.inactivePlural },
+              ]}
               onChange={(v) => { setStatusFilter(v); setPage(1) }}
             />
           </>
@@ -240,7 +247,7 @@ export default function ClientesPage() {
             onClick={openAdd}
           >
             <Plus size={14} />
-            Novo Cliente
+            {copy.add}
           </Button>
         }
         pagination={{
@@ -255,19 +262,19 @@ export default function ClientesPage() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Novo Cliente</DialogTitle>
+            <DialogTitle>{copy.add}</DialogTitle>
           </DialogHeader>
           <ClientFormFields form={form} onChange={setForm} />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </Button>
             <Button
               onClick={handleAdd}
               disabled={!form.name.trim() || !form.phone.trim() || submitting}
               className="bg-(--color-accent) text-white"
             >
-              Salvar
+              {messages.save}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -277,19 +284,19 @@ export default function ClientesPage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Editar Cliente</DialogTitle>
+            <DialogTitle>{copy.edit}</DialogTitle>
           </DialogHeader>
           <ClientFormFields form={form} onChange={setForm} />
           <DialogFooter showCloseButton={false}>
             <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </Button>
             <Button
               onClick={handleEdit}
               disabled={!form.name.trim() || !form.phone.trim() || submitting}
               className="bg-(--color-accent) text-white"
             >
-              Salvar Alterações
+              {messages.saveChanges}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -302,21 +309,21 @@ export default function ClientesPage() {
             <AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)">
               <TriangleAlert size={20} />
             </AlertDialogMedia>
-            <AlertDialogTitle>Remover cliente?</AlertDialogTitle>
+            <AlertDialogTitle>{copy.archiveTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedClient?.name} será arquivado e deixará de aparecer nas operações ativas.
+              {selectedClient && copy.archiveDescription(selectedClient.name)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={submitting}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Arquivar
+              {messages.archive}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

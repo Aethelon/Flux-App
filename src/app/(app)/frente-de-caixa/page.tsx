@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type UIEvent } from "react"
+import { Fragment, useEffect, useEffectEvent, useRef, useState, type KeyboardEvent, type UIEvent } from "react"
 import {
   Search,
   Minus,
@@ -41,6 +41,14 @@ import { useOrdersStore } from "@/store/ordersStore"
 import { useClientsStore } from "@/store/clientsStore"
 import { api, idempotencyHeaders } from "@/lib/api"
 import { AbrirCaixaDialog } from "@/components/caixa/CaixaPanel"
+import { cashMessages } from "@/components/caixa/messages"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { posMessages } from "./messages"
+
+function usePosMessages() {
+  const { locale } = useLocale()
+  return posMessages[locale]
+}
 
 // "Ordens" entra como uma categoria à parte no fim da lista: são ordens de
 // serviço concluídas e ainda não vendidas, disponíveis para cobrança no balcão.
@@ -50,18 +58,11 @@ const ORDERS_CATEGORY = "Ordens"
 // que o passo de pagamento não precise de um sub-seletor de tipo de cartão.
 type MethodKey = "dinheiro" | "cartao_credito" | "cartao_debito" | "pix"
 
-const METHOD_LABEL: Record<MethodKey, string> = {
-  dinheiro: "Dinheiro",
-  cartao_credito: "Cartão Crédito",
-  cartao_debito: "Cartão Débito",
-  pix: "Pix",
-}
-
-const METHODS: { key: MethodKey; label: string; icon: typeof Banknote }[] = [
-  { key: "dinheiro", label: METHOD_LABEL.dinheiro, icon: Banknote },
-  { key: "cartao_credito", label: METHOD_LABEL.cartao_credito, icon: CreditCard },
-  { key: "cartao_debito", label: METHOD_LABEL.cartao_debito, icon: CreditCard },
-  { key: "pix", label: METHOD_LABEL.pix, icon: QrCode },
+const METHODS: { key: MethodKey; icon: typeof Banknote }[] = [
+  { key: "dinheiro", icon: Banknote },
+  { key: "cartao_credito", icon: CreditCard },
+  { key: "cartao_debito", icon: CreditCard },
+  { key: "pix", icon: QrCode },
 ]
 
 // Modelo de edição na tela (amount como texto). Ao finalizar vira Payment[] — o
@@ -120,6 +121,7 @@ function ProductCard({
   cardRef: (el: HTMLButtonElement | null) => void
 }) {
   // Serviço não controla estoque: sempre disponível e sem limite de quantidade.
+  const messages = usePosMessages()
   const service = product.type === "service"
   const soldOut = !service && product.stock <= 0
   const maxed = !service && qty >= product.stock
@@ -131,7 +133,7 @@ function ProductCard({
       disabled={soldOut}
       onClick={onAdd}
       className={cn(
-        "flex flex-col justify-between gap-3 rounded-xl border p-3 text-left transition-colors",
+        "flex min-w-0 flex-col justify-between gap-3 rounded-xl border p-2.5 text-left transition-colors sm:p-3",
         soldOut
           ? "cursor-not-allowed border-(--color-border) bg-(--color-surface-raised) opacity-50"
           : qty > 0
@@ -141,22 +143,22 @@ function ProductCard({
       )}
     >
       <div className="flex flex-col gap-0.5">
-        <span className="text-[13px] font-medium leading-tight text-(--color-text-primary)">
+        <span className="wrap-anywhere text-[13px] font-medium leading-tight text-(--color-text-primary)">
           {product.name}
         </span>
         <span className="text-[11px] text-(--color-text-secondary)">
-          {service ? "Sob demanda" : soldOut ? "Esgotado" : `${product.stock} em estoque`}
+          {service ? messages.onDemand : soldOut ? messages.outOfStock : messages.inStock(product.stock)}
         </span>
       </div>
 
-      <div className="flex items-end justify-between gap-2">
-        <span className="text-[13px] font-semibold text-(--color-text-primary)">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <span className="wrap-anywhere text-[13px] font-semibold text-(--color-text-primary)">
           {formatCurrency(product.price)}
         </span>
 
         {qty > 0 ? (
           <div
-            className="flex items-center gap-1 rounded-lg bg-(--color-surface) p-0.5"
+            className="ml-auto flex items-center gap-1 rounded-lg bg-(--color-surface) p-0.5"
             onClick={(e) => e.stopPropagation()}
           >
             <span
@@ -185,7 +187,7 @@ function ProductCard({
             </span>
           </div>
         ) : (
-          <span className="flex size-7 items-center justify-center rounded-lg bg-(--color-accent) text-white">
+          <span className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--color-accent) text-white">
             <Plus size={15} />
           </span>
         )}
@@ -218,7 +220,7 @@ function OrderCard({
       disabled={disabled}
       onClick={onToggle}
       className={cn(
-        "flex flex-col justify-between gap-3 rounded-xl border p-3 text-left transition-colors",
+        "flex min-w-0 flex-col justify-between gap-3 rounded-xl border p-2.5 text-left transition-colors sm:p-3",
         selected
           ? "border-(--color-accent) bg-primary/5"
           : disabled
@@ -228,17 +230,17 @@ function OrderCard({
       )}
     >
       <div className="flex flex-col gap-0.5">
-        <span className="text-[13px] font-medium leading-tight text-(--color-text-primary)">
+        <span className="wrap-anywhere text-[13px] font-medium leading-tight text-(--color-text-primary)">
           {order.title}
         </span>
-        <span className="text-[11px] text-(--color-text-secondary)">{order.client}</span>
+        <span className="wrap-anywhere text-[11px] text-(--color-text-secondary)">{order.client}</span>
       </div>
 
-      <div className="flex items-end justify-between gap-2">
-        <span className="text-[13px] font-semibold text-(--color-text-primary)">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <span className="wrap-anywhere text-[13px] font-semibold text-(--color-text-primary)">
           {formatCurrency(order.value)}
         </span>
-        <span className="flex size-7 items-center justify-center rounded-lg bg-(--color-accent) text-white">
+        <span className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--color-accent) text-white">
           {selected ? <Check size={15} /> : <Plus size={15} />}
         </span>
       </div>
@@ -257,12 +259,13 @@ function OrderStepper({
   canPay: boolean
   onStep: (s: 1 | 2) => void
 }) {
+  const messages = usePosMessages()
   const steps = [
-    { n: 1 as const, label: "Pedido" },
-    { n: 2 as const, label: "Pagamento" },
+    { n: 1 as const, label: messages.order },
+    { n: 2 as const, label: messages.payment },
   ]
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
       {steps.map((s, i) => {
         const active = step === s.n
         const done = step > s.n
@@ -274,7 +277,7 @@ function OrderStepper({
               disabled={!clickable}
               onClick={() => clickable && onStep(s.n)}
               className={cn(
-                "flex items-center gap-2 disabled:cursor-not-allowed",
+                "flex items-center gap-1.5 disabled:cursor-not-allowed sm:gap-2",
                 clickable && "cursor-pointer"
               )}
             >
@@ -315,6 +318,9 @@ function OrderStepper({
 }
 
 export default function FrenteDeCaixaPage() {
+  const { locale } = useLocale()
+  const messages = posMessages[locale]
+  const cashCopy = cashMessages[locale]
   const CATALOG_BATCH_SIZE = 60
   const [cart, setCart] = useState<Record<string, number>>({})
   const [orderCart, setOrderCart] = useState<string[]>([])
@@ -343,6 +349,7 @@ export default function FrenteDeCaixaPage() {
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const paymentAmountInputRef = useRef<HTMLInputElement>(null)
+  const orderPanelRef = useRef<HTMLElement>(null)
   // A abertura também fica acessível na Frente de Caixa; o fechamento usa o header global.
   const [abrirCaixaOpen, setAbrirCaixaOpen] = useState(false)
   const [checkoutPending, setCheckoutPending] = useState(false)
@@ -376,13 +383,14 @@ export default function FrenteDeCaixaPage() {
     setVisibleProductCount(CATALOG_BATCH_SIZE)
   }
 
+  const showLoadError = useEffectEvent(() => toast.error(messages.loadError))
+
   useEffect(() => {
-    void Promise.all([loadProducts(), loadOrders(), loadClients(), loadCash()]).catch(() => {
-      toast.error("Não foi possível carregar o catálogo.")
-    })
+    void Promise.all([loadProducts(), loadOrders(), loadClients(), loadCash()]).catch(() => showLoadError())
   }, [loadCash, loadClients, loadOrders, loadProducts])
 
   useEffect(() => {
+    if (!window.matchMedia("(pointer: fine)").matches) return
     const timer = window.setTimeout(() => searchInputRef.current?.focus(), 50)
     return () => window.clearTimeout(timer)
   }, [])
@@ -501,7 +509,9 @@ export default function FrenteDeCaixaPage() {
       return { ...prev, [id]: current + 1 }
     })
     updateSearch("")
-    window.setTimeout(() => searchInputRef.current?.focus(), 0)
+    if (window.matchMedia("(pointer: fine)").matches) {
+      window.setTimeout(() => searchInputRef.current?.focus(), 0)
+    }
   }
 
   function removeOne(id: string) {
@@ -645,7 +655,7 @@ export default function FrenteDeCaixaPage() {
 
   function goToPayment() {
     if (!caixaAberto) {
-      toast.error("Abra o caixa antes de finalizar uma venda.")
+      toast.error(messages.registerRequired)
       return
     }
     if (cartLines.length === 0) return
@@ -655,6 +665,9 @@ export default function FrenteDeCaixaPage() {
     setPayments([])
     cancelPending()
     setStep(2)
+    if (window.matchMedia("(width < 64rem)").matches) {
+      orderPanelRef.current?.scrollIntoView({ block: "start" })
+    }
   }
 
   async function handleCheckout() {
@@ -701,15 +714,22 @@ export default function FrenteDeCaixaPage() {
           })),
         },
       }).json<{ businessNumber: number }>()
-      const methodsLabel = resolved.map(describePayment).join(" + ")
-      const changeText = change > 0 ? ` · Troco ${formatCurrency(change)}` : ""
-      toast.success(
-        `Pedido Nº${sale.businessNumber} finalizado${client ? ` para ${client}` : ""} — ${formatCurrency(total)} em ${methodsLabel}${changeText}.`
-      )
+      const methodsLabel = (locale === "pt-BR"
+        ? resolved.map(describePayment)
+        : payments.map(({ methodKey, installments }) => {
+          const label = cashCopy[methodKey]
+          return methodKey === "cartao_credito"
+            ? `${label}${(installments ?? 1) > 1 ? ` · ${installments}x` : messages.upfront}`
+            : label
+        })
+      ).join(" + ")
+      toast.success(messages.saleCompleted(
+        sale.businessNumber, client, formatCurrency(total), methodsLabel, change > 0 ? formatCurrency(change) : ""
+      ))
       await Promise.all([loadProducts(), loadOrders(), loadCash()])
       clearOrder()
     } catch {
-      toast.error("Não foi possível finalizar a venda.")
+      toast.error(messages.checkoutError)
     } finally {
       setCheckoutPending(false)
     }
@@ -824,17 +844,18 @@ export default function FrenteDeCaixaPage() {
   }
 
   return (
-    <div className="-mb-6 flex h-[calc(100dvh-var(--header-height)-3.5rem)] flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4 lg:-mb-6 lg:h-[calc(100dvh-var(--header-height)-3.5rem)]">
+      <h1 className="sr-only">{messages.title}</h1>
       {!caixaAberto && (
-        <div className="flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-(--color-warning)/30 bg-(--color-warning)/10 px-4 py-3">
+        <div className="flex shrink-0 flex-col items-start gap-3 rounded-2xl border border-(--color-warning)/30 bg-(--color-warning)/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2.5">
-            <Lock size={16} className="text-(--color-warning)" />
+            <Lock size={16} className="shrink-0 text-(--color-warning)" />
             <div className="flex flex-col">
               <span className="text-[13px] font-semibold text-(--color-text-primary)">
-                Caixa fechado
+                {cashCopy.cashClosed}
               </span>
               <span className="text-[12px] text-(--color-text-secondary)">
-                Abra o caixa para poder finalizar vendas na Frente de Caixa.
+                {messages.registerClosedDetails}
               </span>
             </div>
           </div>
@@ -844,19 +865,19 @@ export default function FrenteDeCaixaPage() {
             onClick={() => setAbrirCaixaOpen(true)}
           >
             <Unlock size={14} />
-            Abrir caixa
+            {cashCopy.openRegister}
           </Button>
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[1fr_400px]">
+      <div className="grid min-h-0 grid-cols-1 gap-4 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-6">
         {/* Catálogo de produtos / ordens */}
-        <div className="flex min-h-0 flex-col gap-4 rounded-2xl border border-(--color-border) bg-(--color-surface) p-4">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 rounded-2xl border border-(--color-border) bg-(--color-surface) p-3 sm:gap-4 sm:p-4">
           <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
               {/* Faixa de categorias rolável na horizontal; "Ordens" fica
                   destacada (cor de acento + ícone) por não ser categoria de produto. */}
-              <div className="flex w-1/2 max-w-[540px] shrink-0 items-center gap-1 overflow-x-auto rounded-lg bg-(--color-surface-raised) p-1 scrollbar-none">
+              <div className="flex w-full min-w-0 shrink-0 items-center gap-1 overflow-x-auto rounded-lg bg-(--color-surface-raised) p-1 lg:w-1/2 lg:max-w-[540px] lg:scrollbar-none">
                 {CATEGORIES.map((c) => {
                   const isOrders = c === ORDERS_CATEGORY
                   const active = category === c
@@ -880,14 +901,14 @@ export default function FrenteDeCaixaPage() {
                         )}
                       >
                         {isOrders && <ClipboardList size={13} />}
-                        {c}
+                        {isOrders ? messages.orders : c === "Todos" ? messages.all : c}
                       </button>
                     </Fragment>
                   )
                 })}
               </div>
 
-              <div className="relative flex-1">
+              <div className="relative min-w-0 flex-1">
                 <Search
                   size={15}
                   className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--color-text-secondary)"
@@ -897,51 +918,52 @@ export default function FrenteDeCaixaPage() {
                   value={search}
                   onChange={(e) => updateSearch(e.target.value)}
                   onKeyDown={handleSearchKeyDown}
+                  aria-label={showingOrders ? messages.searchOrder : messages.searchProduct}
                   placeholder={
                     showingOrders
-                      ? "Buscar ordem: título ou cliente"
-                      : "Buscar produto: código, nome, código de barras ou categoria"
+                      ? messages.orderPlaceholder
+                      : messages.productPlaceholder
                   }
                   className="h-9 pl-8"
                 />
               </div>
             </div>
 
-            <div className="hidden items-center gap-3 text-[11px] text-(--color-text-secondary) sm:flex">
+            <div className="hidden flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-(--color-text-secondary) sm:flex">
               <span className="flex items-center gap-1">
                 <kbd className="rounded border border-(--color-border) bg-(--color-surface-raised) px-1.5 py-0.5 font-sans">
                   ↑↓←→
                 </kbd>
-                navegar
+                {messages.navigate}
               </span>
               <span className="flex items-center gap-1">
                 <kbd className="rounded border border-(--color-border) bg-(--color-surface-raised) px-1.5 py-0.5 font-sans">
                   Enter
                 </kbd>
-                adicionar
+                {messages.addShortcut}
               </span>
               <span className="flex items-center gap-1">
                 <kbd className="rounded border border-(--color-border) bg-(--color-surface-raised) px-1.5 py-0.5 font-sans">
                   Esc
                 </kbd>
-                limpar busca
+                {messages.clearSearch}
               </span>
               <span className="flex items-center gap-1">
                 <kbd className="rounded border border-(--color-border) bg-(--color-surface-raised) px-1.5 py-0.5 font-sans">
                   Alt+←/→
                 </kbd>
-                trocar categoria
+                {messages.changeCategory}
               </span>
             </div>
           </div>
 
           <div
-            className="min-h-0 flex-1 overflow-y-auto p-1"
+            className="min-h-0 max-h-[min(40dvh,24rem)] flex-1 overflow-y-auto p-1 lg:max-h-none"
             onScroll={handleCatalogScroll}
           >
             {showingOrders ? (
               filteredOrders.length > 0 ? (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-4">
                   {filteredOrders.map((o, i) => (
                     <OrderCard
                       key={o.id}
@@ -957,15 +979,15 @@ export default function FrenteDeCaixaPage() {
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center gap-2 py-20 text-center">
+                <div className="flex flex-col items-center justify-center gap-2 py-8 text-center lg:py-20">
                   <ClipboardList size={28} className="text-(--color-text-secondary)/50" />
                   <p className="text-[14px] text-(--color-text-secondary)">
-                    Nenhuma ordem concluída disponível para venda.
+                    {messages.noCompletedOrders}
                   </p>
                 </div>
               )
             ) : filteredCatalog.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-4">
                 {visibleCatalog.map((p, i) => (
                   <ProductCard
                     key={p.id}
@@ -981,15 +1003,15 @@ export default function FrenteDeCaixaPage() {
                 ))}
                 {visibleCatalog.length < filteredCatalog.length && (
                   <div className="col-span-full py-2 text-center text-[11px] text-(--color-text-secondary)">
-                    Mostrando {visibleCatalog.length} de {filteredCatalog.length} produtos
+                    {messages.showingProducts(visibleCatalog.length, filteredCatalog.length)}
                   </div>
                 )}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center gap-2 py-20 text-center">
+              <div className="flex flex-col items-center justify-center gap-2 py-8 text-center lg:py-20">
                 <Search size={28} className="text-(--color-text-secondary)/50" />
                 <p className="text-[14px] text-(--color-text-secondary)">
-                  Nenhum produto encontrado.
+                  {messages.noProducts}
                 </p>
               </div>
             )}
@@ -997,10 +1019,13 @@ export default function FrenteDeCaixaPage() {
         </div>
 
         {/* Pedido em 2 passos: detalhes e pagamento */}
-        <aside className="flex min-h-0 flex-col gap-4 rounded-2xl border border-(--color-border) bg-(--color-surface) p-5">
+        <aside
+          ref={orderPanelRef}
+          className="flex min-h-0 min-w-0 scroll-mt-4 flex-col gap-4 rounded-2xl border border-(--color-border) bg-(--color-surface) p-3 sm:p-5"
+        >
           <div className="flex shrink-0 items-center justify-between">
             <h2 className="text-[18px] font-semibold text-(--color-text-primary)">
-              Novo pedido
+              {messages.newOrder}
             </h2>
             <div className="flex items-center gap-1">
               <button
@@ -1013,7 +1038,7 @@ export default function FrenteDeCaixaPage() {
                   parsePriceInput(discountInput) <= 0 &&
                   !client
                 }
-                title="Limpar pedido"
+                title={messages.clearOrder}
                 className="rounded-md p-1.5 text-(--color-danger)/70 transition-colors hover:bg-(--color-danger)/10 hover:text-(--color-danger) disabled:pointer-events-none disabled:opacity-40"
               >
                 <Trash2 size={18} />
@@ -1033,21 +1058,26 @@ export default function FrenteDeCaixaPage() {
               porcentagem de largura (w-1/2 de um container w-[200%]), que
               pode ser mal resolvido pelo navegador quando há elementos de
               largura fixa dentro do painel (ex.: Select de parcelas). */}
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="min-h-0 min-w-0 flex-1 lg:overflow-hidden">
             <div
-              className="flex h-full transition-transform duration-300 ease-out"
-              style={{ transform: step === 2 ? "translateX(-100%)" : "translateX(0%)" }}
+              className={cn("lg:flex lg:h-full lg:transition-transform lg:duration-300 lg:ease-out", step === 2 && "lg:-translate-x-full")}
             >
-              <div className="flex h-full w-full shrink-0 flex-col gap-5 overflow-y-auto pr-2">
+              <div
+                inert={step !== 1}
+                className={cn(
+                  "w-full shrink-0 flex-col gap-5 lg:flex lg:h-full lg:overflow-y-auto lg:pr-2",
+                  step === 1 ? "flex" : "hidden"
+                )}
+              >
                 <div className="flex flex-col gap-2">
                   <span className="text-[13px] font-semibold text-(--color-text-primary)">
-                    Itens do pedido
+                    {messages.items}
                   </span>
                   {cartLines.length === 0 ? (
                     <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-(--color-border) px-4 py-4 text-center">
                       <ShoppingCart size={18} className="shrink-0 text-(--color-text-secondary)/50" />
                       <p className="text-[12px] text-(--color-text-secondary)">
-                        Adicione produtos ou ordens ao pedido.
+                        {messages.addItems}
                       </p>
                     </div>
                   ) : (
@@ -1066,14 +1096,14 @@ export default function FrenteDeCaixaPage() {
                             </span>
                             {item.source === "order" && (
                               <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-medium uppercase text-(--color-accent)">
-                                Ordem
+                                {messages.serviceOrder}
                               </span>
                             )}
                             <button
                               type="button"
                               onClick={() => removeLine(item)}
                               className="shrink-0 text-(--color-text-secondary)/60 hover:text-(--color-danger)"
-                              title="Remover item"
+                              title={messages.removeItem}
                             >
                               <X size={13} />
                             </button>
@@ -1089,7 +1119,7 @@ export default function FrenteDeCaixaPage() {
 
                 <div className="mt-auto flex flex-col gap-2">
                   <span className="text-[13px] font-semibold text-(--color-text-primary)">
-                    Cliente
+                    {messages.customer}
                   </span>
                   <ClientCombobox value={client} onChange={setClient} align="up" />
                 </div>
@@ -1104,11 +1134,17 @@ export default function FrenteDeCaixaPage() {
                 </div>
               </div>
 
-              <div className="flex h-full w-full shrink-0 flex-col gap-3 overflow-y-auto pl-2">
+              <div
+                inert={step !== 2}
+                className={cn(
+                  "w-full shrink-0 flex-col gap-3 lg:flex lg:h-full lg:overflow-y-auto lg:pl-2",
+                  step === 2 ? "flex" : "hidden"
+                )}
+              >
                 <div className="flex flex-col gap-2">
-                  <span className="text-[13px] font-semibold text-(--color-text-primary)">
-                    Desconto
-                  </span>
+                  <label htmlFor="pos-discount" className="text-[13px] font-semibold text-(--color-text-primary)">
+                    {messages.discount}
+                  </label>
                   <div className="flex items-center gap-2">
                     <div className="inline-flex rounded-lg bg-(--color-surface-raised) p-0.5">
                       <button
@@ -1137,10 +1173,11 @@ export default function FrenteDeCaixaPage() {
                       </button>
                     </div>
                     <Input
+                      id="pos-discount"
                       inputMode="decimal"
                       value={discountInput}
                       onChange={(e) => handleDiscountInput(e.target.value)}
-                      placeholder={discountMode === "percent" ? "p. ex. 10,00" : "p. ex. 25,00"}
+                      placeholder={discountMode === "percent" ? "10,00" : "25,00"}
                       className="h-9 flex-1"
                     />
                   </div>
@@ -1152,7 +1189,7 @@ export default function FrenteDeCaixaPage() {
                     <span className="text-(--color-text-primary)">{formatCurrency(subtotal)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-(--color-text-secondary)">Desconto</span>
+                    <span className="text-(--color-text-secondary)">{messages.discount}</span>
                     <span className={cn(discountValue > 0 && "text-(--color-success)")}>
                       {discountValue > 0 ? `- ${formatCurrency(discountValue)}` : formatCurrency(0)}
                     </span>
@@ -1168,11 +1205,11 @@ export default function FrenteDeCaixaPage() {
                 </div>
 
                 <span className="text-[13px] font-semibold text-(--color-text-primary)">
-                  Forma de pagamento
+                  {messages.paymentMethod}
                 </span>
 
                 <div className="grid grid-cols-2 gap-2">
-                  {METHODS.map(({ key, label, icon: Icon }) => {
+                  {METHODS.map(({ key, icon: Icon }) => {
                     const entry = payments.find((e) => e.methodKey === key)
                     const isPending = pendingMethod === key
                     return (
@@ -1181,7 +1218,7 @@ export default function FrenteDeCaixaPage() {
                         type="button"
                         onClick={() => selectMethod(key)}
                         className={cn(
-                          "flex h-10 items-center justify-center gap-1.5 rounded-xl border text-[12px] font-medium transition-colors",
+                          "flex min-h-10 items-center justify-center gap-1 rounded-xl border px-1 text-[12px] font-medium transition-colors sm:gap-1.5",
                           isPending
                             ? "border-(--color-accent) bg-primary/10 text-(--color-accent) ring-1 ring-(--color-accent)"
                             : entry
@@ -1189,8 +1226,8 @@ export default function FrenteDeCaixaPage() {
                               : "border-(--color-border) bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary)"
                         )}
                       >
-                        <Icon size={15} />
-                        {label}
+                        <Icon size={15} className="shrink-0" />
+                        {cashCopy[key]}
                         {entry && !isPending && <Check size={12} className="ml-0.5" />}
                       </button>
                     )
@@ -1200,14 +1237,15 @@ export default function FrenteDeCaixaPage() {
                 {pendingMethod && (
                   <div className="flex flex-col gap-2 rounded-xl border border-primary/40 bg-primary/5 p-2.5">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[12px] font-semibold text-(--color-text-primary)">
-                        Valor — {METHOD_LABEL[pendingMethod]}
-                      </span>
-                      <div className="relative w-32">
+                      <label htmlFor="pos-payment-amount" className="text-[12px] font-semibold text-(--color-text-primary)">
+                        {messages.amount} — {cashCopy[pendingMethod]}
+                      </label>
+                      <div className="relative w-28 shrink-0 sm:w-32">
                         <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-(--color-text-secondary)">
                           R$
                         </span>
                         <Input
+                          id="pos-payment-amount"
                           ref={paymentAmountInputRef}
                           inputMode="decimal"
                           value={pendingAmount}
@@ -1226,21 +1264,23 @@ export default function FrenteDeCaixaPage() {
 
                     {pendingMethod === "cartao_credito" && (
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[12px] text-(--color-text-secondary)">Parcelas</span>
+                        <label htmlFor="pos-installments" className="text-[12px] text-(--color-text-secondary)">
+                          {messages.installments}
+                        </label>
                         <Select
                           value={String(pendingInstallments)}
                           onValueChange={(v) => setPendingInstallments(Number(v))}
                         >
-                          <SelectTrigger className="h-8 w-40">
-                            <SelectValue />
+                          <SelectTrigger id="pos-installments" className="h-8 w-32 max-w-full sm:w-40">
+                            <SelectValue>{pendingInstallments}x</SelectValue>
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="w-56 max-w-[calc(100vw-2rem)]">
                             {INSTALLMENTS.map((n) => {
                               const base = parsePriceInput(pendingAmount)
                               return (
-                                <SelectItem key={n} value={String(n)}>
-                                  {n}x{base > 0 ? ` de ${formatCurrency(base / n)}` : ""}
-                                  {n === 1 ? " à vista" : " sem juros"}
+                                <SelectItem key={n} value={String(n)} className="[&>span:first-child]:whitespace-normal">
+                                  {n}x{base > 0 ? messages.installmentAmount(formatCurrency(base / n)) : ""}
+                                  {n === 1 ? messages.upfront : messages.interestFree}
                                 </SelectItem>
                               )
                             })}
@@ -1256,7 +1296,7 @@ export default function FrenteDeCaixaPage() {
                         onClick={cancelPending}
                         className="h-8 flex-1 rounded-lg text-[12px]"
                       >
-                        Cancelar
+                        {messages.cancel}
                       </Button>
                       <Button
                         type="button"
@@ -1264,7 +1304,7 @@ export default function FrenteDeCaixaPage() {
                         disabled={parsePriceInput(pendingAmount) <= 0}
                         className="h-8 flex-1 rounded-lg bg-(--color-accent) text-[12px] text-white"
                       >
-                        {editingEntryId ? "Salvar" : "Adicionar"}
+                        {editingEntryId ? messages.save : messages.add}
                       </Button>
                     </div>
                   </div>
@@ -1284,9 +1324,10 @@ export default function FrenteDeCaixaPage() {
                             : "border-(--color-border) text-(--color-text-secondary) hover:text-(--color-text-primary)"
                         )}
                       >
-                        {METHOD_LABEL[entry.methodKey]} · {formatCurrency(effectiveAmount(entry))}
+                        {cashCopy[entry.methodKey]} · {formatCurrency(effectiveAmount(entry))}
                         <span
                           role="button"
+                          aria-label={messages.removePayment}
                           tabIndex={0}
                           onClick={(e) => {
                             e.stopPropagation()
@@ -1304,7 +1345,7 @@ export default function FrenteDeCaixaPage() {
                 {payments.length > 0 && (
                   <div
                     className={cn(
-                      "flex items-center justify-between rounded-lg px-3 py-2 text-[12px] font-medium",
+                      "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-[12px] font-medium",
                       change > 0 && !changeCoveredByCash
                         ? "bg-(--color-warning)/10 text-(--color-warning)"
                         : change > 0
@@ -1316,27 +1357,27 @@ export default function FrenteDeCaixaPage() {
                   >
                     {change > 0 && !changeCoveredByCash ? (
                       <>
-                        <span>Troco sem cobertura em dinheiro</span>
+                        <span>{messages.cashChangeMissing}</span>
                         <span>{formatCurrency(change)}</span>
                       </>
                     ) : change > 0 ? (
                       <>
                         <span className="flex items-center gap-1.5">
                           <Check size={14} />
-                          Troco
+                          {messages.change}
                         </span>
                         <span>{formatCurrency(change)}</span>
                       </>
                     ) : remaining > 0.005 ? (
                       <>
-                        <span>Falta alocar</span>
+                        <span>{messages.pendingAmount}</span>
                         <span>{formatCurrency(remaining)}</span>
                       </>
                     ) : (
                       <>
                         <span className="flex items-center gap-1.5">
                           <Check size={14} />
-                          Pagamento completo
+                          {messages.paid}
                         </span>
                         <span>{formatCurrency(total)}</span>
                       </>
@@ -1352,40 +1393,40 @@ export default function FrenteDeCaixaPage() {
             <Button
               onClick={goToPayment}
               disabled={!canPay}
-              className="h-12 w-full shrink-0 justify-center rounded-2xl bg-(--color-accent) text-[15px] font-semibold text-white"
-              title="Atalho: F2"
+              className="h-auto min-h-12 w-full shrink-0 justify-center rounded-2xl bg-(--color-accent) py-2 text-center text-[15px] font-semibold whitespace-normal text-white"
+              title={messages.shortcut}
             >
               <span className="flex items-center gap-2">
                 {!caixaAberto
-                  ? "Abra o caixa para vender"
+                  ? messages.openToSell
                   : cartLines.length === 0
-                    ? "Adicione itens ao pedido"
-                    : `Ir para pagamento — ${formatCurrency(total)}`}
-                <span className="inline-flex items-center rounded-full border border-white/30 bg-white/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
+                    ? messages.addBeforePayment
+                    : `${messages.goToPayment} — ${formatCurrency(total)}`}
+                <span className="hidden items-center rounded-full border border-white/30 bg-white/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide lg:inline-flex">
                   F2
                 </span>
               </span>
             </Button>
           ) : (
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-stretch gap-2">
               <Button
                 variant="outline"
                 onClick={backToOrder}
-                className="h-12 shrink-0 justify-center gap-1.5 rounded-2xl px-4"
+                className="h-auto min-h-12 shrink-0 justify-center gap-1.5 rounded-2xl px-4"
               >
                 <ArrowLeft size={16} />
-                Voltar
+                {messages.back}
               </Button>
               <Button
                 onClick={handleCheckout}
                 disabled={!fullyCovered || checkoutPending}
-                className="h-12 flex-1 justify-center gap-1.5 rounded-2xl bg-(--color-accent) text-[15px] font-semibold text-white"
-                title="Atalho: F2"
+                className="h-auto min-h-12 flex-1 justify-center gap-1.5 rounded-2xl bg-(--color-accent) py-2 text-center text-[15px] font-semibold whitespace-normal text-white"
+                title={messages.shortcut}
               >
                 <Wallet size={16} />
                 <span className="flex items-center gap-2">
-                  <span>{checkoutPending ? "Finalizando..." : `Finalizar — ${formatCurrency(total)}`}</span>
-                  <span className="inline-flex items-center rounded-full border border-white/30 bg-white/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
+                  <span>{checkoutPending ? messages.finalizing : `${messages.finalize} — ${formatCurrency(total)}`}</span>
+                  <span className="hidden items-center rounded-full border border-white/30 bg-white/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide lg:inline-flex">
                     F2
                   </span>
                 </span>

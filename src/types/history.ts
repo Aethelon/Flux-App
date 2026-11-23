@@ -12,7 +12,7 @@ export interface HistoryItem {
 export interface HistoryEntry {
   id: string
   orderNumber: number
-  clientName: string
+  clientName: string | null
   phone: string
   date: string
   completedAt: string

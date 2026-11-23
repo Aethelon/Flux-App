@@ -1,8 +1,9 @@
+import type { Locale } from "@/lib/locale"
 import type { ForecastPoint } from "@/components/analytics/RevenueForecastChart"
 import type { DashboardData, ForecastRun } from "@/store/analyticsStore"
 
-export function monthLabel(value: string): string {
-  return new Intl.DateTimeFormat("pt-BR", { month: "short" })
+export function monthLabel(value: string, locale: Locale = "pt-BR"): string {
+  return new Intl.DateTimeFormat(locale, { month: "short" })
     .format(new Date(`${value}T12:00:00`))
     .replace(".", "")
 }
@@ -10,6 +11,7 @@ export function monthLabel(value: string): string {
 export function buildRevenueForecastChart(
   dashboard: Pick<DashboardData, "dateRange" | "revenueSeries" | "timezone">,
   forecast?: Pick<ForecastRun, "points">,
+  locale: Locale = "pt-BR",
 ): ForecastPoint[] {
   const currentMonth = new Intl.DateTimeFormat("en-CA", {
     timeZone: dashboard.timezone,
@@ -21,7 +23,7 @@ export function buildRevenueForecastChart(
   for (const point of dashboard.revenueSeries) {
     const month = point.bucketStart.slice(0, 7)
     points.set(month, {
-      label: monthLabel(point.bucketStart),
+      label: monthLabel(point.bucketStart, locale),
       realized: point.netRevenueCents / 100,
       projected: null,
       realizedPartial: month === currentMonth,
@@ -33,7 +35,7 @@ export function buildRevenueForecastChart(
     if (month < currentMonth) continue
     const actual = points.get(month)
     points.set(month, {
-      label: monthLabel(point.bucketStart),
+      label: monthLabel(point.bucketStart, locale),
       realized: actual?.realized ?? null,
       projected: point.operationalValue / 100,
       realizedPartial: actual?.realizedPartial,

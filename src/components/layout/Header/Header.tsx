@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react"
 import { Lock, Unlock } from "lucide-react"
+import { MobileSidebar } from "../Sidebar/Sidebar"
+import { useLocale } from "../LocaleProvider"
+import { interfaceCopy } from "@/lib/interfaceCopy"
 import { SearchBar } from "./SearchBar"
 import { DarkModeToggle } from "./DarkModeToggle"
 import { UserMenu } from "./UserMenu"
@@ -27,6 +30,9 @@ function CaixaStatusButton() {
   const [abrirOpen, setAbrirOpen] = useState(false)
   const [fecharOpen, setFecharOpen] = useState(false)
   const [resumoFechamento, setResumoFechamento] = useState<ResumoFechamento | null>(null)
+  const { locale } = useLocale()
+  const copy = interfaceCopy[locale]
+  const label = caixaAberto ? copy.cashOpen : copy.cashClosed
 
   useEffect(() => {
     void loadCash().catch(() => undefined)
@@ -37,16 +43,17 @@ function CaixaStatusButton() {
       <Button
         variant="outline"
         size="sm"
+        aria-label={label}
         onClick={() => (caixaAberto ? setFecharOpen(true) : setAbrirOpen(true))}
         className={cn(
-          "h-9 gap-1.5 rounded-full border text-[12px] font-medium",
+          "size-11 gap-1.5 rounded-full border text-[12px] font-medium lg:h-9 lg:w-auto",
           caixaAberto
             ? "border-(--color-success)/30 bg-(--color-success)/10 text-(--color-success) hover:bg-(--color-success)/15"
             : "border-(--color-warning)/30 bg-(--color-warning)/10 text-(--color-warning) hover:bg-(--color-warning)/15"
         )}
       >
         {caixaAberto ? <Unlock size={14} /> : <Lock size={14} />}
-        {caixaAberto ? "Caixa aberto" : "Caixa fechado"}
+        <span className="hidden lg:inline">{label}</span>
       </Button>
 
       <AbrirCaixaDialog open={abrirOpen} onOpenChange={setAbrirOpen} />
@@ -69,9 +76,15 @@ export function Header() {
     || hasPermission(user?.role, user?.permissions, "pos.view")
 
   return (
-    <header className="flex items-center justify-between h-18.5 px-10 bg-(--color-bg) shrink-0">
-      <SearchBar />
-      <div className="flex items-center gap-4 shrink-0">
+    <header className="relative z-20 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 bg-(--color-bg) px-3 py-2 sm:px-6 lg:flex lg:h-18.5 lg:justify-between lg:gap-4 lg:px-10 lg:py-0">
+      <div className="flex min-w-0 items-center gap-1 lg:hidden">
+        <MobileSidebar />
+        <span className="text-xl font-black text-(--color-text-primary)">Flux</span>
+      </div>
+      <div className="col-span-2 row-start-2 min-w-0 lg:flex-1">
+        <SearchBar />
+      </div>
+      <div className="col-start-2 row-start-1 flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-4">
         {canUseCash && <CaixaStatusButton />}
         <DarkModeToggle />
         <UserMenu />

@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useState, useSyncExternalStore } from "react"
+import { useEffect, useEffectEvent, useState, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom"
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   closestCorners,
@@ -76,20 +77,21 @@ import { orderPriority, useOrdersStore } from "@/store/ordersStore"
 import { useUserStore } from "@/store/userStore"
 import { api, idempotencyHeaders } from "@/lib/api"
 import type { KanbanColumn, Order, OrderPriority } from "@/types/order"
+import { useLocale } from "@/components/layout/LocaleProvider"
+import { orderMessages } from "./messages"
+
+function useOrderMessages() {
+  const { locale } = useLocale()
+  return orderMessages[locale]
+}
 
 const COLOR_OPTIONS = [
-  { name: "Âmbar",    value: "--color-warning" },
-  { name: "Índigo",   value: "--color-accent" },
-  { name: "Verde",    value: "--color-success" },
-  { name: "Vermelho", value: "--color-danger" },
-  { name: "Azul",     value: "--color-info" },
-]
-
-const PRIORITY_OPTIONS: { value: OrderPriority; label: string }[] = [
-  { value: "baixa", label: "Baixa" },
-  { value: "média", label: "Média" },
-  { value: "alta",  label: "Alta" },
-]
+  { name: "amber", value: "--color-warning" },
+  { name: "indigo", value: "--color-accent" },
+  { name: "green", value: "--color-success" },
+  { name: "red", value: "--color-danger" },
+  { name: "blue", value: "--color-info" },
+] as const
 
 const PRIORITY_COLORS: Record<OrderPriority, string> = {
   baixa: "text-(--color-success)",
@@ -133,6 +135,7 @@ const EMPTY_ORDER_FORM: OrderForm = {
 }
 
 export default function OrdensPage() {
+  const messages = useOrderMessages()
   const columns = useOrdersStore((state) => state.columns)
   const orders = useOrdersStore((state) => state.orders)
   const setColumns = useOrdersStore((state) => state.setColumns)
@@ -143,9 +146,11 @@ export default function OrdensPage() {
   const user = useUserStore((state) => state.user)
   const isAdmin = user?.role === "admin"
 
+  const showLoadError = useEffectEvent(() => toast.error(messages.loadError))
+
   useEffect(() => {
     void Promise.all([loadOrders(), loadClients()])
-      .catch(() => toast.error("Não foi possível carregar as ordens."))
+      .catch(() => showLoadError())
   }, [loadClients, loadOrders])
 
   const [viewMode, setViewMode] = useState<"kanban" | "lista">("kanban")
@@ -160,7 +165,7 @@ export default function OrdensPage() {
   const [columnModalMode, setColumnModalMode] = useState<"add" | "edit">("add")
   const [editingColumn, setEditingColumn] = useState<KanbanColumn | null>(null)
   const [columnName, setColumnName] = useState("")
-  const [columnColor, setColumnColor] = useState(COLOR_OPTIONS[0].value)
+  const [columnColor, setColumnColor] = useState<string>(COLOR_OPTIONS[0].value)
   const [deleteColumnOpen, setDeleteColumnOpen] = useState(false)
   const [deletingColumn, setDeletingColumn] = useState<KanbanColumn | null>(null)
 
@@ -171,7 +176,8 @@ export default function OrdensPage() {
   const [form, setForm] = useState<OrderForm>(EMPTY_ORDER_FORM)
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   )
 
   // O DragOverlay usa position: fixed, e o transform do ContentScaler cria um
@@ -189,7 +195,7 @@ export default function OrdensPage() {
     } else {
       const card = orders.find((o) => o.id === active.id) ?? null
       if (card?.finalSaleId) {
-        toast.info("Esta ordem já foi vendida e não pode ser movimentada.")
+        toast.info(messages.soldCannotMove)
         return
       }
       setActiveCard(card)
@@ -253,12 +259,12 @@ export default function OrdensPage() {
           if (error instanceof HTTPError) {
             const body = await error.response.json<{ code?: string }>().catch(() => null)
             if (body?.code === "COLUMN_REORDER_CONFLICT") {
-              toast.error("As colunas foram alteradas. O quadro foi atualizado; tente novamente.")
+              toast.error(messages.columnsChanged)
               void loadOrders()
               return
             }
           }
-          toast.error("Não foi possível salvar a nova ordem das colunas.")
+          toast.error(messages.reorderError)
           void loadOrders()
         })
       return
@@ -282,11 +288,11 @@ export default function OrdensPage() {
       }).then(loadOrders)
         .catch(async (error: unknown) => {
           if (await apiErrorCode(error) === "SERVICE_ORDER_ALREADY_BILLED") {
-            toast.info("Esta ordem já foi vendida e não pode ser movimentada.")
+            toast.info(messages.soldCannotMove)
             void loadOrders()
             return
           }
-          toast.error("Não foi possível mover a ordem.")
+          toast.error(messages.moveError)
           void loadOrders()
         })
     }
@@ -342,7 +348,7 @@ export default function OrdensPage() {
       })
       await loadOrders()
       setColumnModalOpen(false)
-      toast.success("Coluna adicionada com sucesso.")
+      toast.success(messages.columnAdded)
       return
     }
 
@@ -357,7 +363,7 @@ export default function OrdensPage() {
     })
     await loadOrders()
     setColumnModalOpen(false)
-    toast.success("Coluna atualizada.")
+    toast.success(messages.columnUpdated)
   }
 
   async function handleDeleteColumn() {
@@ -371,7 +377,7 @@ export default function OrdensPage() {
     })
     await loadOrders()
     setDeleteColumnOpen(false)
-    toast.success(`Coluna "${deletingColumn.label}" foi removida.`)
+    toast.success(messages.columnRemoved(deletingColumn.label))
     setDeletingColumn(null)
   }
 
@@ -404,20 +410,20 @@ export default function OrdensPage() {
 
   async function handleSaveOrder() {
     if (selectedOrder?.finalSaleId) {
-      toast.info("Esta ordem já foi vendida e não pode ser alterada.")
+      toast.info(messages.soldCannotEdit)
       return
     }
     if (!form.title.trim()) {
-      toast.error("Informe o título da ordem.")
+      toast.error(messages.titleRequired)
       return
     }
     if (!form.columnId) {
-      toast.error("Selecione o status da ordem.")
+      toast.error(messages.statusRequired)
       return
     }
     const customer = clients.find((client) => client.name === form.client)
     if (!customer) {
-      toast.error("Selecione um cliente cadastrado.")
+      toast.error(messages.customerRequired)
       return
     }
     try {
@@ -438,7 +444,7 @@ export default function OrdensPage() {
         })
         await loadOrders()
         setOrderModalOpen(false)
-        toast.success("Ordem de serviço adicionada com sucesso.")
+        toast.success(messages.orderAdded)
         return
       }
 
@@ -469,29 +475,29 @@ export default function OrdensPage() {
       }
       await loadOrders()
       setOrderModalOpen(false)
-      toast.success("Ordem de serviço atualizada.")
+      toast.success(messages.orderUpdated)
     } catch (error: unknown) {
       if (await apiErrorCode(error) === "SERVICE_ORDER_ALREADY_BILLED") {
-        toast.info("Esta ordem já foi vendida e não pode ser alterada.")
+        toast.info(messages.soldCannotEdit)
         await loadOrders()
         setOrderModalOpen(false)
         return
       }
       toast.error(orderModalMode === "add"
-        ? "Não foi possível criar a ordem."
-        : "Não foi possível atualizar a ordem.")
+        ? messages.createOrderError
+        : messages.updateOrderError)
     }
   }
 
   async function handleDeleteOrder() {
     if (!selectedOrder) return
     if (selectedOrder.finalSaleId) {
-      toast.info("Esta ordem já foi vendida e não pode ser alterada.")
+      toast.info(messages.soldCannotEdit)
       return
     }
     const cancelled = columns.find((column) => column.semanticType === "cancelled")
     if (!cancelled) {
-      toast.error("A coluna de cancelamento não está configurada.")
+      toast.error(messages.cancelColumnMissing)
       return
     }
     try {
@@ -505,23 +511,24 @@ export default function OrdensPage() {
       })
       await loadOrders()
       setDeleteOrderOpen(false)
-      toast.success(`${selectedOrder.title} foi cancelada.`)
+      toast.success(messages.orderCancelled(selectedOrder.title))
       setSelectedOrder(null)
     } catch (error: unknown) {
       if (await apiErrorCode(error) === "SERVICE_ORDER_ALREADY_BILLED") {
-        toast.info("Esta ordem já foi vendida e não pode ser alterada.")
+        toast.info(messages.soldCannotEdit)
         await loadOrders()
         setDeleteOrderOpen(false)
         setSelectedOrder(null)
         return
       }
-      toast.error("Não foi possível cancelar a ordem.")
+      toast.error(messages.cancelOrderError)
     }
   }
 
+  const priorities = { baixa: messages.low, média: messages.medium, alta: messages.high }
   const LIST_PER_PAGE = 10
   const statusFilterOptions = [
-    { value: "todos", label: "Todos" },
+    { value: "todos", label: messages.all },
     ...columns.map((c) => ({ value: c.id, label: c.label })),
   ]
   const listFiltered = orders.filter(
@@ -535,13 +542,13 @@ export default function OrdensPage() {
   const listColumns: Column<Order>[] = [
     {
       key: "title",
-      label: "Título",
+      label: messages.orderTitle,
       render: (row) => <span className="font-medium">{row.title}</span>,
     },
-    { key: "client", label: "Cliente" },
+    { key: "client", label: messages.customer },
     {
       key: "columnId",
-      label: "Status",
+      label: messages.status,
       render: (row) => {
         const col = columns.find((c) => c.id === row.columnId)
         if (!col) return "—"
@@ -555,26 +562,26 @@ export default function OrdensPage() {
         )
       },
     },
-    { key: "value", label: "Valor", render: (row) => formatCurrency(row.value) },
+    { key: "value", label: messages.value, render: (row) => formatCurrency(row.value) },
     {
       key: "priority",
-      label: "Prioridade",
+      label: messages.priority,
       render: (row) => (
-        <span className={cn("capitalize", PRIORITY_COLORS[row.priority])}>{row.priority}</span>
+        <span className={cn("capitalize", PRIORITY_COLORS[row.priority])}>{priorities[row.priority]}</span>
       ),
     },
-    { key: "dueAt", label: "Data", render: (row) => formatDueDate(row.dueAt) },
+    { key: "dueAt", label: messages.date, render: (row) => formatDueDate(row.dueAt) },
     {
       key: "actions",
-      label: "Ações",
+      label: messages.actions,
       className: "text-right",
       render: (row) => (
         <div className="flex items-center justify-end gap-1">
           {row.finalSaleId && (
             <span
               className="rounded p-1.5 text-(--color-success)"
-              title="Ordem vendida"
-              aria-label="Ordem vendida"
+              title={messages.sold}
+              aria-label={messages.sold}
             >
               <BadgeDollarSign size={15} />
             </span>
@@ -582,7 +589,7 @@ export default function OrdensPage() {
           <button
             onClick={() => openOrder(row)}
             className="p-1.5 rounded hover:bg-(--color-surface-raised) text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-            title={row.finalSaleId ? "Visualizar ordem vendida" : "Abrir ordem"}
+            title={row.finalSaleId ? messages.viewSold : messages.openOrder}
           >
             <Eye size={15} />
           </button>
@@ -593,9 +600,9 @@ export default function OrdensPage() {
 
   return (
     <div>
-      <PageHeader title="Ordem de Serviço" subtitle="Board Kanban com mudança rápida de status" />
+      <PageHeader title={messages.title} subtitle={messages.subtitle} />
 
-      <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-2 sm:gap-4">
         <div className="inline-flex rounded-lg border border-(--color-border) bg-(--color-surface) p-0.5">
           <button
             type="button"
@@ -621,24 +628,24 @@ export default function OrdensPage() {
             )}
           >
             <List size={14} />
-            Lista
+            {messages.list}
           </button>
         </div>
         {viewMode === "kanban" ? (
           isAdmin ? (
-            <Button className="w-40 justify-center gap-2 bg-(--color-accent) text-white" onClick={openAddColumn}>
+            <Button className="justify-center gap-2 bg-(--color-accent) text-white sm:w-40" onClick={openAddColumn}>
               <Plus size={16} />
-              Nova Coluna
+              {messages.newColumn}
             </Button>
           ) : <span />
         ) : (
           <Button
-            className="w-40 justify-center gap-2 bg-(--color-accent) text-white"
+            className="justify-center gap-2 bg-(--color-accent) text-white sm:w-40"
             onClick={() => openAddOrder(columns[0]?.id ?? "")}
             disabled={columns.length === 0}
           >
             <Plus size={16} />
-            Nova Ordem
+            {messages.newOrder}
           </Button>
         )}
       </div>
@@ -653,7 +660,7 @@ export default function OrdensPage() {
           onDragCancel={handleDragCancel}
         >
           <SortableContext items={columns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
-            <div className="flex items-start gap-4 overflow-x-auto pb-4">
+            <div className="flex min-w-0 items-start gap-3 overflow-x-auto pb-4 sm:gap-4">
               {columns.map((column) => (
                 <KanbanColumnView
                   key={column.id}
@@ -681,9 +688,9 @@ export default function OrdensPage() {
                 >
                   {activeCard && <OrderCardOverlay order={activeCard} />}
                   {activeColumn && (
-                    <div className="w-72 shrink-0 rounded-xl border border-(--color-border) bg-(--color-surface) p-3 shadow-xl">
+                    <div className="w-full shrink-0 rounded-xl border border-(--color-border) bg-(--color-surface) p-3 shadow-xl sm:w-72">
                       <span
-                        className="inline-flex items-center rounded px-2 py-1 text-[13px] font-medium text-white"
+                          className="inline-flex items-center rounded px-2 py-1 text-[13px] font-medium wrap-anywhere text-white"
                         style={{ backgroundColor: `var(${activeColumn.color})` }}
                       >
                         {activeColumn.label}
@@ -702,7 +709,7 @@ export default function OrdensPage() {
           keyField="id"
           filters={
             <FilterDropdown
-              label="Status"
+              label={messages.status}
               value={statusFilter}
               options={statusFilterOptions}
               onChange={(v) => { setStatusFilter(v); setListPage(1) }}
@@ -721,26 +728,26 @@ export default function OrdensPage() {
       <Dialog open={columnModalOpen} onOpenChange={setColumnModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{columnModalMode === "edit" ? "Editar Coluna" : "Nova Coluna"}</DialogTitle>
+            <DialogTitle>{columnModalMode === "edit" ? messages.editColumn : messages.newColumn}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="column-name">Nome</Label>
+              <Label htmlFor="column-name">{messages.name}</Label>
               <Input
                 id="column-name"
-                placeholder="Ex: Aguardando Peças"
+                placeholder={messages.columnPlaceholder}
                 value={columnName}
                 onChange={(e) => setColumnName(e.target.value)}
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label>Cor</Label>
-              <div className="flex gap-2">
+              <Label>{messages.color}</Label>
+              <div className="flex flex-wrap gap-2">
                 {COLOR_OPTIONS.map((c) => (
                   <button
                     key={c.value}
                     type="button"
-                    title={c.name}
+                    title={messages[c.name]}
                     onClick={() => setColumnColor(c.value)}
                     className={cn(
                       "size-8 rounded-full ring-2 ring-offset-2 ring-offset-(--color-surface) transition-all",
@@ -770,21 +777,21 @@ export default function OrdensPage() {
                 }}
               >
                 <Trash2 size={14} />
-                Excluir
+                {messages.delete}
               </Button>
             ) : (
               <span />
             )}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
               <Button variant="outline" onClick={() => setColumnModalOpen(false)}>
-                Cancelar
+                {messages.cancel}
               </Button>
               <Button
                 onClick={handleSaveColumn}
                 disabled={!columnName}
                 className="bg-(--color-accent) text-white"
               >
-                {columnModalMode === "edit" ? "Salvar Alterações" : "Criar Coluna"}
+                {columnModalMode === "edit" ? messages.saveChanges : messages.createColumn}
               </Button>
             </div>
           </DialogFooter>
@@ -798,21 +805,20 @@ export default function OrdensPage() {
             <AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)">
               <TriangleAlert size={20} />
             </AlertDialogMedia>
-            <AlertDialogTitle>Remover coluna?</AlertDialogTitle>
+            <AlertDialogTitle>{messages.removeColumnTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              A coluna &quot;{deletingColumn?.label}&quot; será arquivada. Ela precisa estar sem
-              ordens de serviço para que a operação seja concluída.
+              {messages.archiveColumnDescription(deletingColumn?.label ?? "")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteColumnOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteColumn}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Remover
+              {messages.remove}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -841,20 +847,20 @@ export default function OrdensPage() {
             <AlertDialogMedia className="bg-(--color-danger)/10 text-(--color-danger)">
               <TriangleAlert size={20} />
             </AlertDialogMedia>
-            <AlertDialogTitle>Cancelar ordem de serviço?</AlertDialogTitle>
+            <AlertDialogTitle>{messages.cancelOrderTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedOrder?.title} será movida para o estado de cancelamento e permanecerá no histórico.
+              {messages.cancelOrderDescription(selectedOrder?.title ?? "")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteOrderOpen(false)}>
-              Cancelar
+              {messages.cancel}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteOrder}
               className="bg-(--color-danger) text-white hover:bg-(--color-danger)/90"
             >
-              Cancelar ordem
+              {messages.cancelOrder}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -880,6 +886,7 @@ function KanbanColumnView({
   onEditColumn: () => void
   onOpenOrder: (order: Order) => void
 }) {
+  const messages = useOrderMessages()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
     data: { type: "column" },
@@ -896,21 +903,21 @@ function KanbanColumnView({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "flex min-w-72 flex-1 flex-col gap-4 rounded-xl border p-3 transition-colors",
+        "flex min-w-0 shrink-0 basis-[min(calc(100%-2rem),18rem)] flex-col gap-3 rounded-xl border p-3 transition-colors sm:min-w-72 sm:flex-1 sm:gap-4",
         isDragging ? "opacity-40" : "opacity-100",
         isDropTarget
           ? "border-primary/60 bg-(--color-surface-raised)"
           : "border-transparent bg-(--color-surface)"
       )}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
           {canManageColumn && (
             <button
               {...attributes}
               {...listeners}
-              className="cursor-grab touch-none p-0.5 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors active:cursor-grabbing"
-              title="Arrastar coluna"
+              className="shrink-0 cursor-grab touch-none p-0.5 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors active:cursor-grabbing"
+              title={messages.dragColumn}
             >
               <GripVertical size={16} />
             </button>
@@ -919,15 +926,15 @@ function KanbanColumnView({
             <button
               type="button"
               onClick={onEditColumn}
-              title="Editar coluna"
-              className="inline-flex cursor-pointer items-center rounded px-2 py-1 text-[13px] font-medium text-white transition-opacity hover:opacity-80"
+              title={messages.editColumnLabel}
+              className="min-w-0 cursor-pointer rounded px-2 py-1 text-left text-[13px] font-medium wrap-anywhere text-white transition-opacity hover:opacity-80"
               style={{ backgroundColor: `var(${column.color})` }}
             >
               {column.label}
             </button>
           ) : (
             <span
-              className="inline-flex items-center rounded px-2 py-1 text-[13px] font-medium text-white"
+              className="min-w-0 rounded px-2 py-1 text-[13px] font-medium wrap-anywhere text-white"
               style={{ backgroundColor: `var(${column.color})` }}
             >
               {column.label}
@@ -940,7 +947,8 @@ function KanbanColumnView({
         {column.semanticType === "open" && (
           <button
             onClick={onAddTask}
-            className="flex items-center justify-center rounded bg-(--color-surface-raised) p-1.5 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
+            aria-label={messages.newOrder}
+            className="flex shrink-0 items-center justify-center rounded bg-(--color-surface-raised) p-1.5 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
           >
             <Plus size={16} />
           </button>
@@ -958,7 +966,7 @@ function KanbanColumnView({
                   : "border-(--color-border) text-(--color-text-secondary)"
               )}
             >
-              Solte aqui
+              {messages.dropHere}
             </div>
           ) : (
             orders.map((order) => (
@@ -982,17 +990,18 @@ function CardBody({
   order: Order
   onOpen?: () => void
 }) {
+  const messages = useOrderMessages()
   return (
     <>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[15px] font-medium text-(--color-text-primary) font-(family-name:--font-ui)">
+        <span className="min-w-0 text-[15px] font-medium wrap-anywhere text-(--color-text-primary) font-(family-name:--font-ui)">
           {order.title}
         </span>
         <span className="shrink-0 text-[11px] text-(--color-text-secondary) font-(family-name:--font-data)">
           {formatDueDate(order.dueAt)}
         </span>
       </div>
-      <div className="flex flex-col text-[12px] text-(--color-text-primary) font-(family-name:--font-data)">
+      <div className="flex flex-col text-[12px] wrap-anywhere text-(--color-text-primary) font-(family-name:--font-data)">
         <span>{order.client}</span>
         <span>{formatCurrency(order.value)}</span>
       </div>
@@ -1002,8 +1011,8 @@ function CardBody({
           {order.finalSaleId && (
             <span
               className="flex items-center justify-center rounded bg-(--color-success)/10 p-1 text-(--color-success)"
-              title="Ordem vendida"
-              aria-label="Ordem vendida"
+              title={messages.sold}
+              aria-label={messages.sold}
             >
               <BadgeDollarSign size={14} />
             </span>
@@ -1011,8 +1020,10 @@ function CardBody({
           <button
             onClick={(e) => { e.stopPropagation(); onOpen?.() }}
             onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             className="flex items-center justify-center rounded bg-(--color-surface) p-1 text-(--color-text-secondary) hover:text-(--color-text-primary) transition-colors"
-            title={order.finalSaleId ? "Visualizar ordem vendida" : "Abrir ordem"}
+            title={order.finalSaleId ? messages.viewSold : messages.openOrder}
           >
             <Eye size={14} />
           </button>
@@ -1029,6 +1040,7 @@ function OrderCard({
   order: Order
   onOpen: () => void
 }) {
+  const messages = useOrderMessages()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: order.id,
     data: { type: "card", columnId: order.columnId },
@@ -1057,10 +1069,10 @@ function OrderCard({
       style={style}
       {...(order.finalSaleId ? {} : attributes)}
       {...(order.finalSaleId
-        ? { onPointerDown: () => toast.info("Esta ordem já foi vendida e não pode ser movimentada.") }
+        ? { onPointerDown: () => toast.info(messages.soldCannotMove) }
         : listeners)}
       className={cn(
-        "flex touch-none flex-col gap-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-3 transition-shadow",
+        "flex flex-col gap-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-3 transition-shadow",
         order.finalSaleId
           ? "cursor-not-allowed opacity-80"
           : "cursor-grab hover:border-(--color-text-secondary)/30 active:cursor-grabbing"
@@ -1100,6 +1112,8 @@ function OrderDialog({
   onSave: () => void
   onDelete: () => void
 }) {
+  const messages = useOrderMessages()
+  const priorities = { baixa: messages.low, média: messages.medium, alta: messages.high }
   const isEdit = mode === "edit"
   const canCancel = !readOnly
     && columns.find((column) => column.id === form.columnId)?.semanticType === "open"
@@ -1108,14 +1122,14 @@ function OrderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogTitle className="sr-only">
-          {readOnly ? "Visualizar ordem vendida" : isEdit ? "Editar ordem de serviço" : "Nova ordem de serviço"}
+          {readOnly ? messages.viewSold : isEdit ? messages.editServiceOrder : messages.newServiceOrder}
         </DialogTitle>
 
         <div className="flex flex-col gap-1.5 pr-10">
-          <Label htmlFor="order-title">Título</Label>
+          <Label htmlFor="order-title">{messages.orderTitle}</Label>
           <Input
             id="order-title"
-            placeholder="Título da ordem de serviço"
+            placeholder={messages.orderTitlePlaceholder}
             value={form.title}
             disabled={readOnly}
             onChange={(e) => onChange({ ...form, title: e.target.value })}
@@ -1123,22 +1137,22 @@ function OrderDialog({
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-[1.5fr_1fr]">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[1.5fr_1fr] md:gap-6">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="order-description">Descrição</Label>
+            <Label htmlFor="order-description">{messages.description}</Label>
             <Textarea
               id="order-description"
-              placeholder="Descrição detalhada do serviço"
+              placeholder={messages.descriptionPlaceholder}
               value={form.description}
               disabled={readOnly}
               onChange={(e) => onChange({ ...form, description: e.target.value })}
-              className="min-h-40"
+              className="min-h-24 md:min-h-40"
             />
           </div>
 
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="order-status">Status</Label>
+              <Label htmlFor="order-status">{messages.status}</Label>
               <Select
                 items={columns.map((column) => ({ value: column.id, label: column.label }))}
                 value={form.columnId}
@@ -1156,7 +1170,7 @@ function OrderDialog({
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="order-client">Cliente</Label>
+              <Label htmlFor="order-client">{messages.customer}</Label>
               <ClientCombobox
                 id="order-client"
                 value={form.client}
@@ -1165,11 +1179,11 @@ function OrderDialog({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="order-value">Valor (R$)</Label>
+              <Label htmlFor="order-value">{messages.amountBrl}</Label>
               <Input
                 id="order-value"
                 inputMode="decimal"
-                placeholder="Ex: 250,00"
+                placeholder="250,00"
                 value={form.value}
                 disabled={readOnly}
                 onChange={(e) =>
@@ -1178,7 +1192,7 @@ function OrderDialog({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="order-priority">Prioridade</Label>
+              <Label htmlFor="order-priority">{messages.priority}</Label>
               <Select
                 value={form.priority}
                 disabled={readOnly}
@@ -1188,14 +1202,14 @@ function OrderDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PRIORITY_OPTIONS.map((p) => (
-                    <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                  {Object.entries(priorities).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="order-due">Data</Label>
+              <Label htmlFor="order-due">{messages.date}</Label>
               <Input
                 id="order-due"
                 type="date"
@@ -1216,21 +1230,21 @@ function OrderDialog({
               onClick={onDelete}
             >
               <Trash2 size={14} />
-              Cancelar ordem
+              {messages.cancelOrder}
             </Button>
           ) : (
             <span />
           )}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
-              {readOnly ? "Fechar" : "Cancelar"}
+              {readOnly ? messages.close : messages.cancel}
             </Button>
             {!readOnly && (
               <Button
                 onClick={onSave}
                 className="bg-(--color-accent) text-white"
               >
-                {isEdit ? "Salvar Alterações" : "Criar Ordem"}
+                {isEdit ? messages.saveChanges : messages.createOrder}
               </Button>
             )}
           </div>

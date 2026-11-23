@@ -44,7 +44,7 @@ export interface HistoryKpis {
 export interface HistorySearchRecord {
   id: string
   businessNumber: number
-  customerName: string
+  customerName: string | null
   completedAt: string
   itemNames: string[]
 }
@@ -79,7 +79,7 @@ function entry(sale: ApiHistorySale): HistoryEntry {
   return {
     id: sale.id,
     orderNumber: sale.businessNumber,
-    clientName: customer?.name ?? "Consumidor não identificado",
+    clientName: customer?.name ?? null,
     phone: clients.find((client) => client.id === customer?.id)?.phone ?? "—",
     date: new Date(sale.completedAt).toLocaleString("pt-BR", {
       day: "2-digit",
@@ -132,7 +132,7 @@ export const useHistoryStore = create<HistoryStore>((set) => ({
       searchRecords: page.data.map((record) => ({
         id: record.id,
         businessNumber: record.businessNumber,
-        customerName: record.customer?.name ?? "Consumidor não identificado",
+        customerName: record.customer?.name ?? null,
         completedAt: record.completedAt,
         itemNames: record.itemNames,
       })),
@@ -155,7 +155,7 @@ export const useHistoryStore = create<HistoryStore>((set) => ({
         searchRecords: page.data.map((record) => ({
           id: record.id,
           businessNumber: record.businessNumber,
-          customerName: record.customer?.name ?? "Consumidor não identificado",
+          customerName: record.customer?.name ?? null,
           completedAt: record.completedAt,
           itemNames: record.itemNames,
         })),

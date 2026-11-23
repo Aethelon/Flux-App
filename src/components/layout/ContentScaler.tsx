@@ -10,7 +10,7 @@ export function ContentScaler({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="p-10"
+      className="min-w-0 p-3 sm:p-6 lg:p-10"
       style={{
         transform: `scale(${scale})`,
         transformOrigin: "top left",

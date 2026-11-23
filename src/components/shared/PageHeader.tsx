@@ -11,21 +11,21 @@ export function PageHeader({ title, subtitle, children, className }: PageHeaderP
   return (
     <div
       className={cn(
-        "flex flex-wrap items-end justify-between gap-x-6 gap-y-2 mb-8",
+        "mb-5 flex min-w-0 flex-wrap items-end justify-between gap-x-6 gap-y-2 sm:mb-8",
         className
       )}
     >
-      <h1 className="text-[56px] font-semibold leading-tight tracking-[-2.24px] text-(--color-text-primary) font-(family-name:--font-ui)">
+      <h1 className="min-w-0 wrap-anywhere text-3xl font-semibold leading-tight tracking-tight text-(--color-text-primary) font-(family-name:--font-ui) sm:text-[42px] lg:text-[56px] lg:tracking-[-2.24px]">
         {title}
       </h1>
       {(subtitle || children) && (
-        <div className="flex items-center gap-4 ml-auto pb-2">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:gap-4 sm:pb-2">
           {subtitle && (
-            <p className="text-[18px] font-medium text-(--color-text-secondary) text-right font-(family-name:--font-ui)">
+            <p className="min-w-0 wrap-anywhere text-sm font-medium text-(--color-text-secondary) font-(family-name:--font-ui) sm:text-right sm:text-[18px]">
               {subtitle}
             </p>
           )}
-          {children && <div className="flex items-center gap-3">{children}</div>}
+          {children && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3">{children}</div>}
         </div>
       )}
     </div>
