@@ -43,24 +43,29 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
   const x = (i: number) => (data.length <= 1 ? PAD_L : PAD_L + (i / (data.length - 1)) * PLOT_W)
   const y = (v: number) => PAD_T + PLOT_H - (v / yMax) * PLOT_H
 
-  function buildPath(key: "realized" | "projected") {
-    const pts = data
+  function seriesPoints(key: "realized" | "projected") {
+    return data
       .map((d, i) => ({ i, v: d[key] }))
       .filter((p): p is { i: number; v: number } => p.v != null)
-    if (pts.length === 0) return ""
-    return pts.map((p, idx) => `${idx === 0 ? "M" : "L"} ${x(p.i)} ${y(p.v)}`).join(" ")
   }
 
-  const realizedPath = buildPath("realized")
-  const projectedPath = buildPath("projected")
+  function buildPath(points: ReturnType<typeof seriesPoints>) {
+    return points.map((point, index) => (
+      `${index === 0 ? "M" : "L"} ${x(point.i)} ${y(point.v)}`
+    )).join(" ")
+  }
+
+  const realizedPts = seriesPoints("realized")
+  const projectedPts = seriesPoints("projected")
+  const firstProjected = projectedPts[0]
+  const projectionAnchor = firstProjected && realizedPts.findLast(({ i }) => i < firstProjected.i)
+  const realizedPath = buildPath(realizedPts)
+  const projectedPath = buildPath(projectionAnchor ? [projectionAnchor, ...projectedPts] : projectedPts)
 
   // Area fill under the realized line
-  const realizedPts = data
-    .map((d, i) => ({ i, v: d.realized }))
-    .filter((p): p is { i: number; v: number } => p.v != null)
   const areaPath =
     realizedPts.length > 0
-      ? `${realizedPts.map((p, idx) => `${idx === 0 ? "M" : "L"} ${x(p.i)} ${y(p.v)}`).join(" ")} ` +
+      ? `${realizedPath} ` +
         `L ${x(realizedPts[realizedPts.length - 1].i)} ${y(0)} L ${x(realizedPts[0].i)} ${y(0)} Z`
       : ""
 
@@ -75,6 +80,10 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
 
   const active = hover != null ? data[hover] : null
   const activeLeft = hover != null ? (x(hover) / W) * 100 : 0
+  const belowForecastIndex = data.findIndex(({ realizedPartial, realized, projected }) => (
+    realizedPartial && realized != null && projected != null && realized < projected
+  ))
+  const activeBelowForecast = hover === belowForecastIndex
 
   return (
     <div
@@ -147,15 +156,17 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
 
         {/* points */}
         {data.map((d, i) => {
+          const belowForecast = i === belowForecastIndex
+          const realizedColor = belowForecast ? "var(--color-danger)" : "var(--color-success)"
           return (
             <g key={d.label}>
               {d.realized != null && (
                 <circle
                   cx={x(i)}
                   cy={y(d.realized)}
-                  r={3}
-                  fill="var(--color-surface)"
-                  stroke="var(--color-success)"
+                  r={belowForecast ? 4 : 3}
+                  fill={belowForecast ? realizedColor : "var(--color-surface)"}
+                  stroke={realizedColor}
                   strokeWidth={2}
                 />
               )}
@@ -191,7 +202,7 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
                 cx={x(hover!)}
                 cy={y(active.realized)}
                 r={5}
-                fill="var(--color-success)"
+                fill={activeBelowForecast ? "var(--color-danger)" : "var(--color-success)"}
                 stroke="var(--color-surface)"
                 strokeWidth={2}
               />
@@ -217,7 +228,10 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
         >
           <p className="text-[11px] font-medium text-(--color-text-secondary)">{active.label}</p>
           {active.realized != null && (
-            <p className="text-[11px] text-(--color-success)">
+            <p
+              className="text-[11px]"
+              style={{ color: activeBelowForecast ? "var(--color-text-danger)" : "var(--color-success)" }}
+            >
               {active.realizedPartial ? "Realizado parcial" : "Realizado"}: <span className="font-semibold">{formatCurrency(active.realized)}</span>
             </p>
           )}
@@ -229,7 +243,7 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
         </div>
       )}
 
-      <div className="mt-2 flex items-center justify-center gap-5">
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
         <div className="flex items-center gap-2">
           <span className="h-0.5 w-4 rounded-full bg-(--color-success)" />
           <span className="text-[12px] text-(--color-text-secondary)">Faturamento Realizado</span>
@@ -238,6 +252,12 @@ export function RevenueForecastChart({ data }: { data: ForecastPoint[] }) {
           <span className="h-0 w-4 border-t-2 border-dashed border-(--color-accent)" />
           <span className="text-[12px] text-(--color-text-secondary)">Faturamento Projetado</span>
         </div>
+        {belowForecastIndex !== -1 && (
+          <div className="flex items-center gap-2">
+            <span className="size-2 rounded-full bg-(--color-danger)" aria-hidden="true" />
+            <span className="text-[12px] text-(--color-text-secondary)">Realizado parcial abaixo da previsão</span>
+          </div>
+        )}
       </div>
     </div>
   )

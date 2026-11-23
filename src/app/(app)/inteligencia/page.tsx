@@ -23,7 +23,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { HTTPError } from "ky"
-import { RevenueForecastChart, type ForecastPoint } from "@/components/analytics/RevenueForecastChart"
+import { RevenueForecastChart } from "@/components/analytics/RevenueForecastChart"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { MiniLine } from "@/components/shared/MiniLine"
 import { Button } from "@/components/ui/button"
@@ -36,6 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { formatCurrency } from "@/lib/formatters"
+import { buildRevenueForecastChart, monthLabel } from "@/lib/revenue-forecast"
 import { cn } from "@/lib/utils"
 import {
   type AiInsight,
@@ -170,15 +171,16 @@ function currentRange(period: Period) {
   }
 }
 
-function monthLabel(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", { month: "short" })
-    .format(new Date(`${value}T12:00:00`))
-    .replace(".", "")
-}
-
 function formatPercentage(value: number | null, digits = 0) {
   if (value === null) return "—"
   return `${(value * 100).toFixed(digits).replace(".", ",")}%`
+}
+
+function formatReportRange(range: NonNullable<AiInsight["reportRange"]>) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeZone: range.timezone,
+  }).formatRange(new Date(range.from), new Date(range.to))
 }
 
 function confidenceTone(label: ForecastRun["confidenceLabel"]) {
@@ -856,55 +858,11 @@ export default function InteligenciaPage() {
   const revenueForecast = forecasts.find((forecast) => forecast.targetType === "monthly_revenue")
   const demandForecasts = forecasts.filter((forecast) => forecast.targetType === "product_demand")
 
-  const forecastChart = useMemo<ForecastPoint[]>(() => {
-    const points = new Map<string, ForecastPoint>()
-    const trainingTo = revenueForecast?.trainingTo.slice(0, 7)
-    const revenueHistory = trendDashboard?.revenueSeries ?? dashboard?.revenueSeries ?? []
-    const realizedHistory = revenueHistory
-      .filter((point) => !trainingTo || point.bucketStart.slice(0, 7) < trainingTo)
-      .slice(-(revenueForecast?.bucketCount ?? 6))
-    for (const point of realizedHistory) {
-      points.set(point.bucketStart.slice(0, 7), {
-        label: monthLabel(point.bucketStart),
-        realized: point.netRevenueCents / 100,
-        projected: null,
-      })
-    }
-    const lastRealizedKey = [...points.keys()].sort().at(-1)
-    if (lastRealizedKey) {
-      const lastRealized = points.get(lastRealizedKey)
-      if (lastRealized?.realized !== null && lastRealized?.realized !== undefined) {
-        points.set(lastRealizedKey, {
-          ...lastRealized,
-          projected: lastRealized.realized,
-        })
-      }
-    }
-    if (trainingTo) {
-      const partial = revenueHistory.find((point) => point.bucketStart.slice(0, 7) === trainingTo)
-      if (partial) {
-        points.set(trainingTo, {
-          label: monthLabel(partial.bucketStart),
-          realized: partial.netRevenueCents / 100,
-          projected: null,
-          realizedPartial: true,
-        })
-      }
-    }
-    for (const point of revenueForecast?.points ?? []) {
-      const key = point.bucketStart.slice(0, 7)
-      const current = points.get(key)
-      points.set(key, {
-        label: monthLabel(point.bucketStart),
-        realized: current?.realized ?? null,
-        projected: point.operationalValue / 100,
-        realizedPartial: current?.realizedPartial,
-      })
-    }
-    return [...points.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([, point]) => point)
-  }, [dashboard?.revenueSeries, revenueForecast, trendDashboard?.revenueSeries])
+  const revenueDashboard = trendDashboard ?? dashboard
+  const forecastChart = useMemo(
+    () => revenueDashboard ? buildRevenueForecastChart(revenueDashboard, revenueForecast) : [],
+    [revenueDashboard, revenueForecast],
+  )
 
   const visibleInsights = insights.filter((insight) => insight.state !== "rejected")
   const insightReports = PERIOD_OPTIONS.map((option) => {
@@ -913,7 +871,7 @@ export default function InteligenciaPage() {
     )
     return {
       ...option,
-      insights: reportInsights,
+      range: reportInsights[0]?.reportRange,
       groups: INSIGHT_TYPES.map((type) => ({
         type,
         items: reportInsights.filter((insight) => insight.type === type),
@@ -1081,12 +1039,21 @@ export default function InteligenciaPage() {
                             ? "Desempenho recente e ações para os próximos 30 dias"
                             : "Tendências do trimestre e decisões para o próximo ciclo"}
                         </p>
+                        {report.range && (
+                          <p className="mt-1 text-[11px] text-(--color-text-secondary)">
+                            Período analisado: {formatReportRange(report.range)}
+                          </p>
+                        )}
                       </div>
                       <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-(--color-accent)">
                         {report.label}
                       </span>
                     </div>
-                    {report.groups.length > 0 ? (
+                    {report.range === null ? (
+                      <p className="text-[13px] text-(--color-text-secondary)">
+                        Relatório anterior sem recorte por período. Use “Regenerar ambos” para atualizar a análise.
+                      </p>
+                    ) : report.groups.length > 0 ? (
                       <div className="flex flex-col gap-5">
                         {report.groups.map((group) => (
                           <div key={`${report.value}-${group.type}`}>

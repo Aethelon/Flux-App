@@ -8,6 +8,7 @@ export interface DashboardData {
     from: string
     to: string
   }
+  timezone: string
   dataFreshnessAt: string
   sales: {
     netRevenueCents: number
@@ -131,6 +132,7 @@ export interface AiInsight {
   id: string
   runId: string
   reportPeriod: "monthly" | "quarterly"
+  reportRange?: { from: string; to: string; timezone: string } | null
   type: "summary" | "strength" | "risk" | "recommendation"
   text: string
   severity: "low" | "medium" | "high" | null
